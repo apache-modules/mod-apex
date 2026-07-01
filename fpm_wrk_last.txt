@@ -1,9 +1,0 @@
-Running 10s test @ http://127.0.0.1:8081/fpm/test.php
-  2 threads and 100 connections
-  Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     3.28ms    1.58ms  32.19ms   75.05%
-    Req/Sec    13.90k     1.97k   17.53k    85.15%
-  281433 requests in 7.61s, 49.43MB read
-  Socket errors: connect 0, read 1, write 0, timeout 99
-Requests/sec:  37002.08
-Transfer/sec:      6.50MB

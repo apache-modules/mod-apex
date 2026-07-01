@@ -1,9 +1,0 @@
-Running 15s test @ http://127.0.0.1:8081/wordpress/
-  2 threads and 100 connections
-  Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency   548.60ms  171.74ms   2.00s    78.47%
-    Req/Sec    79.42     30.14   156.00     68.51%
-  2345 requests in 15.09s, 155.19MB read
-  Socket errors: connect 0, read 1, write 0, timeout 58
-Requests/sec:    155.38
-Transfer/sec:     10.28MB
