@@ -186,7 +186,15 @@
       same "printed page" as the copyright notice for easier
       identification within third-party archives.
 
+<<<<<<< HEAD
    Copyright 2026 mod_apex maintainers
+=======
+<<<<<<< HEAD
+   Copyright [yyyy] [name of copyright owner]
+=======
+   Copyright 2026 mod_apex maintainers
+>>>>>>> 05b1866 (Initial commit)
+>>>>>>> b138a22 (Initial commit)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
