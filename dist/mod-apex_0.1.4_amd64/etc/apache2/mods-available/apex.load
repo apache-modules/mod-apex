@@ -1,3 +1,0 @@
-# Ensure the intended PHP ZTS embed library is loaded before mod_apex.
-LoadFile /usr/local/php-zts/lib/libphp.so
-LoadModule apex_module /usr/lib/apache2/modules/mod_apex.so
