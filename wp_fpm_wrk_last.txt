@@ -1,0 +1,9 @@
+Running 15s test @ http://127.0.0.1:8081/fpm/wordpress/
+  2 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   693.89ms  224.03ms   1.98s    91.85%
+    Req/Sec    76.22     26.81   150.00     75.09%
+  2153 requests in 15.10s, 141.64MB read
+  Socket errors: connect 0, read 1, write 0, timeout 4
+Requests/sec:    142.61
+Transfer/sec:      9.38MB

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "remove" || "${1:-}" == "upgrade" ]]; then
+    if command -v a2dismod >/dev/null 2>&1; then
+        a2dismod apex >/dev/null || true
+    fi
+
+    if command -v apachectl >/dev/null 2>&1; then
+        apachectl -t || true
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl reload apache2 >/dev/null 2>&1 || true
+    fi
+fi
+
+exit 0
