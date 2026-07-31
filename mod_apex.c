@@ -72,7 +72,7 @@ static const apex_config *apex_get_config(const request_rec *r)
 /* --------------------------------------------------------------------- */
 typedef struct {
     request_rec *r;               /* Apache request pointer                */
-    long         request_body_len;/* Content-Length when known, else -1    */
+    apr_off_t    request_body_len;/* Content-Length when known, else -1    */
     int          body_ready;      /* ap_setup_client_block completed        */
     int          body_eof;        /* client body fully consumed             */
     apr_off_t    read_post_bytes; /* bytes read from client body via SAPI   */
@@ -555,7 +555,8 @@ static void apex_register_server_variables(zval *track_vars_array)
     } else if (ctx->request_body_len >= 0) {
         apex_register_server_variable(track_vars_array,
                                       "CONTENT_LENGTH",
-                                      apr_psprintf(r->pool, "%ld", ctx->request_body_len));
+                                      apr_psprintf(r->pool, "%" APR_OFF_T_FMT,
+                                                   ctx->request_body_len));
     }
 
     if (r->path_info && *r->path_info) {
@@ -606,6 +607,14 @@ static int apex_is_php_filename(const char *filename)
 static void apex_ensure_worker_tsrm_context(void)
 {
 #ifdef ZTS
+    /* Bind this worker thread's TSRM resources once. After the first request
+     * on a thread, the resources and the TSRMLS cache pointer persist for the
+     * life of the thread, so repeating ts_resource_ex() every request is
+     * wasted work under high concurrency. */
+    static __thread int apex_tsrm_bound = 0;
+    if (apex_tsrm_bound) {
+        return;
+    }
     (void) ts_resource_ex(core_globals_id, NULL);
     (void) ts_resource_ex(sapi_globals_id, NULL);
     (void) ts_resource_ex(executor_globals_id, NULL);
@@ -613,6 +622,7 @@ static void apex_ensure_worker_tsrm_context(void)
 # ifdef ZEND_ENABLE_STATIC_TSRMLS_CACHE
     ZEND_TSRMLS_CACHE_UPDATE();
 # endif
+    apex_tsrm_bound = 1;
 #endif
 }
 
@@ -676,10 +686,10 @@ static int apex_execute_php_file(const char *filename)
 /* --------------------------------------------------------------------- */
 static int apex_handler(request_rec *r)
 {
-    apr_time_t startup_begin;
-    apr_time_t startup_end;
-    apr_time_t execute_end;
-    apr_time_t shutdown_end;
+    apr_time_t startup_begin = 0;
+    apr_time_t startup_end = 0;
+    apr_time_t execute_end = 0;
+    apr_time_t shutdown_end = 0;
 
     /* Fail fast on .php files with incorrect handler mapping. */
     if (r && apex_is_php_filename(r->filename) && !apex_is_supported_handler(r)) {
@@ -696,16 +706,23 @@ static int apex_handler(request_rec *r)
     if (!r->filename || !ap_is_initial_req(r))
         return DECLINED;
 
+    /* Only execute regular files. If Apache already stat'd the target and it
+     * is a known non-regular type (e.g. a directory), return 404 rather than
+     * handing a non-file path to PHP. APR_NOFILE means "not stat'd/unknown",
+     * so leave that case to the normal execution path (preserves front-
+     * controller PATH_INFO behavior like /index.php/foo). */
+    if (r->finfo.filetype != APR_NOFILE && r->finfo.filetype != APR_REG) {
+        return HTTP_NOT_FOUND;
+    }
+
     if (!apex_engine_started) {
         ap_log_rerror(APLOG_MARK, APLOG_CRIT, 0, r,
                       "mod_apex: PHP engine not initialized in child process");
         return HTTP_INTERNAL_SERVER_ERROR;
     }
 
-#ifdef ZEND_ENABLE_STATIC_TSRMLS_CACHE
-    ZEND_TSRMLS_CACHE_UPDATE();
-#endif
-
+    /* Binds this thread's TSRM resources and updates the TSRMLS cache pointer
+     * on first call per worker thread (see apex_ensure_worker_tsrm_context). */
     apex_ensure_worker_tsrm_context();
 
     /* ===== 1. Prepare request context ===== */
@@ -719,28 +736,65 @@ static int apex_handler(request_rec *r)
     }
     apex_populate_php_request_info(r, &ctx);
 
-    /* ===== 2. Start a fresh request inside the persistent interpreter ===== */
+    /* ===== 2. Start a fresh request and execute the script, guarded against
+     * Zend bailouts (E_ERROR, memory exhaustion, exit()). php_execute_script()
+     * catches bailouts raised *inside* script execution itself, but a bailout
+     * during php_request_startup() or file-handle setup would otherwise
+     * longjmp with no matching setjmp on this thread and crash the shared
+     * child process -- taking down every worker thread's in-flight request.
+     * volatile: these are read after the setjmp target, so they must survive
+     * a longjmp. ===== */
+    volatile int startup_ok = 0;
+    volatile int status = SUCCESS;
+
     startup_begin = apr_time_now();
-    if (php_request_startup() == FAILURE) {
-        ap_log_rerror(APLOG_MARK, APLOG_CRIT, 0, r,
-                      "mod_apex: php_request_startup() failed");
+    zend_first_try {
+        if (php_request_startup() == FAILURE) {
+            ap_log_rerror(APLOG_MARK, APLOG_CRIT, 0, r,
+                          "mod_apex: php_request_startup() failed");
+        } else {
+            startup_ok = 1;
+            startup_end = apr_time_now();
+
+            /* Threaded MPM safety: php_execute_script() would otherwise
+             * chdir() the *process* working directory to the script's dir on
+             * every request. CWD is process-global, so under mpm_event's many
+             * worker threads that is a data race that corrupts relative path
+             * resolution (includes, fopen, file_get_contents) across
+             * concurrent requests. SAPI_OPTION_NO_CHDIR disables it. */
+            SG(options) |= SAPI_OPTION_NO_CHDIR;
+
+            status = apex_execute_php_file(r->filename);
+            execute_end = apr_time_now();
+        }
+    } zend_end_try();
+
+    if (!startup_ok) {
+        /* Startup failed or bailed: unwind the request (guarded so a second
+         * bailout cannot escape either) and return a controlled 500. */
+        zend_try {
+            apex_clear_php_request_info();
+            APEX_REQUEST_SHUTDOWN();
+        } zend_end_try();
+        SG(server_context) = NULL;
         apex_send_fatal_error_page(r, "PHP request startup failed");
         return HTTP_INTERNAL_SERVER_ERROR;
     }
-    startup_end = apr_time_now();
 
-    /* ===== 3. Execute the PHP script ===== */
-    int status = apex_execute_php_file(r->filename);
-    execute_end = apr_time_now();
-
-    /* ===== 4. Finish the request ===== */
+    /* ===== 3. Finish the request ===== */
     if (!r->content_type) {
         ap_set_content_type(r, "text/html; charset=UTF-8");
     }
 
-    /* ===== 5. Completely reset the interpreter state for the next request ===== */
-    apex_clear_php_request_info();
-    APEX_REQUEST_SHUTDOWN();
+    /* ===== 4. Reset per-request Zend state for the next request. Guarded
+     * because user shutdown functions and object destructors run here and can
+     * bail. Note: process-global state reachable from PHP (putenv/setlocale/
+     * umask and non-thread-safe extension globals) is NOT and cannot be reset
+     * per thread -- see README compatibility notes. ===== */
+    zend_try {
+        apex_clear_php_request_info();
+        APEX_REQUEST_SHUTDOWN();
+    } zend_end_try();
     shutdown_end = apr_time_now();
     SG(server_context) = NULL;
 
@@ -770,6 +824,263 @@ static int apex_handler(request_rec *r)
 
     return OK;
 }
+
+/* --------------------------------------------------------------------- */
+/* apache2handler compatibility shim                                       */
+/*                                                                         */
+/* Because mod_apex reports the SAPI name as "apache2handler" (to unlock    */
+/* OPcache), application code and frameworks may call the apache_* family   */
+/* and getallheaders() -- functions the stock embed SAPI does not provide,  */
+/* which would otherwise be an "undefined function" fatal. We register      */
+/* compatible implementations through the SAPI additional_functions table   */
+/* (the same mechanism the CLI/CGI SAPIs use to add SAPI-specific           */
+/* functions). php_module_startup(), reached via php_embed_init(),          */
+/* registers these against the "standard" module for every child process.   */
+/* --------------------------------------------------------------------- */
+
+static request_rec *apex_current_request(void)
+{
+    apex_ctx_t *ctx = (apex_ctx_t *) SG(server_context);
+    return ctx ? ctx->r : NULL;
+}
+
+static void apex_add_table_to_array(zval *arr, const apr_table_t *tbl)
+{
+    const apr_array_header_t *hdr;
+    const apr_table_entry_t *elts;
+    int i;
+
+    if (!tbl) {
+        return;
+    }
+
+    hdr  = apr_table_elts(tbl);
+    elts = (const apr_table_entry_t *) hdr->elts;
+    for (i = 0; i < hdr->nelts; i++) {
+        if (!elts[i].key || !elts[i].val) {
+            continue;
+        }
+        add_assoc_string(arr, elts[i].key, (char *) elts[i].val);
+    }
+}
+
+/* getallheaders() / apache_request_headers(): request headers as an array */
+PHP_FUNCTION(apex_getallheaders)
+{
+    request_rec *r;
+
+    ZEND_PARSE_PARAMETERS_NONE();
+
+    array_init(return_value);
+    r = apex_current_request();
+    if (r) {
+        apex_add_table_to_array(return_value, r->headers_in);
+    }
+}
+
+/* apache_response_headers(): response headers as an array */
+PHP_FUNCTION(apex_apache_response_headers)
+{
+    request_rec *r;
+
+    ZEND_PARSE_PARAMETERS_NONE();
+
+    array_init(return_value);
+    r = apex_current_request();
+    if (!r) {
+        return;
+    }
+
+    if (r->content_type) {
+        add_assoc_string(return_value, "Content-Type", (char *) r->content_type);
+    }
+    apex_add_table_to_array(return_value, r->headers_out);
+    apex_add_table_to_array(return_value, r->err_headers_out);
+}
+
+/* apache_setenv(string $variable, string $value, bool $walk_to_top = false) */
+PHP_FUNCTION(apex_apache_setenv)
+{
+    char *name, *value;
+    size_t name_len, value_len;
+    bool walk_to_top = 0;
+    request_rec *r, *target;
+
+    ZEND_PARSE_PARAMETERS_START(2, 3)
+        Z_PARAM_STRING(name, name_len)
+        Z_PARAM_STRING(value, value_len)
+        Z_PARAM_OPTIONAL
+        Z_PARAM_BOOL(walk_to_top)
+    ZEND_PARSE_PARAMETERS_END();
+
+    r = apex_current_request();
+    if (!r) {
+        RETURN_FALSE;
+    }
+
+    target = r;
+    if (walk_to_top) {
+        while (target->main) {
+            target = target->main;
+        }
+    }
+
+    apr_table_set(target->subprocess_env, name, value);
+    RETURN_TRUE;
+}
+
+/* apache_getenv(string $variable, bool $walk_to_top = false): string|false */
+PHP_FUNCTION(apex_apache_getenv)
+{
+    char *name;
+    size_t name_len;
+    bool walk_to_top = 0;
+    request_rec *r, *target;
+    const char *value;
+
+    ZEND_PARSE_PARAMETERS_START(1, 2)
+        Z_PARAM_STRING(name, name_len)
+        Z_PARAM_OPTIONAL
+        Z_PARAM_BOOL(walk_to_top)
+    ZEND_PARSE_PARAMETERS_END();
+
+    r = apex_current_request();
+    if (!r) {
+        RETURN_FALSE;
+    }
+
+    target = r;
+    if (walk_to_top) {
+        while (target->main) {
+            target = target->main;
+        }
+    }
+
+    value = apr_table_get(target->subprocess_env, name);
+    if (!value) {
+        RETURN_FALSE;
+    }
+    RETURN_STRING(value);
+}
+
+/* apache_note(string $note_name, ?string $note_value = null): string|false */
+PHP_FUNCTION(apex_apache_note)
+{
+    char *name, *value = NULL;
+    size_t name_len, value_len = 0;
+    request_rec *r;
+    const char *old_value;
+
+    ZEND_PARSE_PARAMETERS_START(1, 2)
+        Z_PARAM_STRING(name, name_len)
+        Z_PARAM_OPTIONAL
+        Z_PARAM_STRING_OR_NULL(value, value_len)
+    ZEND_PARSE_PARAMETERS_END();
+
+    r = apex_current_request();
+    if (!r) {
+        RETURN_FALSE;
+    }
+
+    old_value = apr_table_get(r->notes, name);
+    if (value) {
+        apr_table_set(r->notes, name, value);
+    }
+
+    if (!old_value) {
+        RETURN_EMPTY_STRING();
+    }
+    RETURN_STRING(old_value);
+}
+
+/* apache_get_version(): string */
+PHP_FUNCTION(apex_apache_get_version)
+{
+    ZEND_PARSE_PARAMETERS_NONE();
+    RETURN_STRING(ap_get_server_banner());
+}
+
+/* apache_get_modules(): array */
+PHP_FUNCTION(apex_apache_get_modules)
+{
+    int i;
+
+    ZEND_PARSE_PARAMETERS_NONE();
+
+    array_init(return_value);
+    for (i = 0; ap_loaded_modules[i] != NULL; i++) {
+        add_next_index_string(return_value, ap_loaded_modules[i]->name);
+    }
+}
+
+/* apache_lookup_uri() / virtual(): inline Apache subrequests are not
+ * supported under the persistent-interpreter model (the handler declines
+ * subrequests). Provide defined stubs that warn and return false rather
+ * than fataling with an undefined function. */
+PHP_FUNCTION(apex_apache_lookup_uri)
+{
+    char *uri;
+    size_t uri_len;
+
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_STRING(uri, uri_len)
+    ZEND_PARSE_PARAMETERS_END();
+
+    php_error_docref(NULL, E_WARNING,
+        "apache_lookup_uri() is not supported by mod_apex");
+    RETURN_FALSE;
+}
+
+PHP_FUNCTION(apex_virtual)
+{
+    char *uri;
+    size_t uri_len;
+
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_STRING(uri, uri_len)
+    ZEND_PARSE_PARAMETERS_END();
+
+    php_error_docref(NULL, E_WARNING,
+        "virtual() is not supported by mod_apex; use an HTTP subrequest instead");
+    RETURN_FALSE;
+}
+
+ZEND_BEGIN_ARG_INFO_EX(apex_arginfo_none, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(apex_arginfo_setenv, 0, 0, 2)
+    ZEND_ARG_INFO(0, variable)
+    ZEND_ARG_INFO(0, value)
+    ZEND_ARG_INFO(0, walk_to_top)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(apex_arginfo_getenv, 0, 0, 1)
+    ZEND_ARG_INFO(0, variable)
+    ZEND_ARG_INFO(0, walk_to_top)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(apex_arginfo_note, 0, 0, 1)
+    ZEND_ARG_INFO(0, note_name)
+    ZEND_ARG_INFO(0, note_value)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(apex_arginfo_uri, 0, 0, 1)
+    ZEND_ARG_INFO(0, uri)
+ZEND_END_ARG_INFO()
+
+static const zend_function_entry apex_additional_functions[] = {
+    ZEND_NAMED_FE(getallheaders,           ZEND_FN(apex_getallheaders),           apex_arginfo_none)
+    ZEND_NAMED_FE(apache_request_headers,  ZEND_FN(apex_getallheaders),           apex_arginfo_none)
+    ZEND_NAMED_FE(apache_response_headers, ZEND_FN(apex_apache_response_headers),  apex_arginfo_none)
+    ZEND_NAMED_FE(apache_setenv,           ZEND_FN(apex_apache_setenv),           apex_arginfo_setenv)
+    ZEND_NAMED_FE(apache_getenv,           ZEND_FN(apex_apache_getenv),           apex_arginfo_getenv)
+    ZEND_NAMED_FE(apache_note,             ZEND_FN(apex_apache_note),             apex_arginfo_note)
+    ZEND_NAMED_FE(apache_get_version,      ZEND_FN(apex_apache_get_version),      apex_arginfo_none)
+    ZEND_NAMED_FE(apache_get_modules,      ZEND_FN(apex_apache_get_modules),      apex_arginfo_none)
+    ZEND_NAMED_FE(apache_lookup_uri,       ZEND_FN(apex_apache_lookup_uri),       apex_arginfo_uri)
+    ZEND_NAMED_FE(virtual,                 ZEND_FN(apex_virtual),                 apex_arginfo_uri)
+    ZEND_FE_END
+};
 
 /* --------------------------------------------------------------------- */
 /* Module initialisation                                                  */
@@ -810,6 +1121,12 @@ static int apex_post_config(apr_pool_t *pconf, apr_pool_t *plog,
     php_embed_module.send_headers   = apex_send_headers;
     php_embed_module.register_server_variables = apex_register_server_variables;
 
+    /* Register the apache2handler-compatibility functions (apache_* +
+     * getallheaders). php_module_startup(), reached from php_embed_init() in
+     * child_init, adds these to the "standard" module's function table so
+     * they exist in every request -- consistent with the reported SAPI name. */
+    php_embed_module.additional_functions = apex_additional_functions;
+
     ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
                  "mod_apex: expected PHP handler mapping is 'php-script' or 'application/x-httpd-php'; "
                  "mis-mapped .php requests will return 500");
@@ -846,18 +1163,19 @@ static void apex_child_init(apr_pool_t *pchild, server_rec *s)
     ZEND_TSRMLS_CACHE_UPDATE();
 #endif
 
-    if (php_request_startup() == FAILURE) {
-        ap_log_error(APLOG_MARK, APLOG_CRIT, 0, s,
-                     "mod_apex: child warmup php_request_startup() failed");
-        return;
-    }
-
+    /* php_embed_init() runs php_module_startup() AND leaves an initial request
+     * active (its matching php_request_shutdown() normally runs inside
+     * php_embed_shutdown()). Our handler drives its own per-request
+     * php_request_startup()/php_request_shutdown() cycle, so close that initial
+     * request now to keep the cycle balanced. The previous code instead called
+     * php_request_startup() a SECOND time here, nesting request state on top of
+     * the one embed_init already opened. */
     APEX_REQUEST_SHUTDOWN();
     SG(server_context) = NULL;
 
     apex_engine_started = 1;
     ap_log_error(APLOG_MARK, APLOG_INFO, 0, s,
-                 "mod_apex: PHP %s engine started in child (warmup complete)", PHP_VERSION);
+                 "mod_apex: PHP %s engine started in child (embed init complete)", PHP_VERSION);
 }
 
 /* --------------------------------------------------------------------- */
