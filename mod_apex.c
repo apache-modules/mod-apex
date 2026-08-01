@@ -1086,6 +1086,22 @@ static const zend_function_entry apex_additional_functions[] = {
 /* Module initialisation                                                  */
 /* --------------------------------------------------------------------- */
 
+/* php_embed_init() sets php_embed_module.additional_functions to its own
+ * built-in array (just dl()) and then invokes php_embed_module.startup(),
+ * which defaults to a thin wrapper around php_module_startup(). We swap in
+ * this wrapper instead so we can re-point additional_functions at our own
+ * apache_* / getallheaders shim array immediately before php_module_startup()
+ * reads it -- i.e. while MINIT is still running and before zend_post_startup()
+ * freezes the process-wide function table snapshot every other ZTS thread
+ * copies from. dl() is intentionally dropped: real apache2handler (mod_php)
+ * doesn't support it either, and mod_apex's persistent-worker-thread model
+ * makes runtime dlopen() of PHP extensions unsafe anyway. */
+static int apex_php_embed_startup(sapi_module_struct *sapi_module)
+{
+    sapi_module->additional_functions = apex_additional_functions;
+    return php_module_startup(sapi_module, NULL);
+}
+
 /* Called once after configuration – start the whole PHP engine */
 static int apex_post_config(apr_pool_t *pconf, apr_pool_t *plog,
                             apr_pool_t *ptemp, server_rec *s)
@@ -1121,12 +1137,20 @@ static int apex_post_config(apr_pool_t *pconf, apr_pool_t *plog,
     php_embed_module.send_headers   = apex_send_headers;
     php_embed_module.register_server_variables = apex_register_server_variables;
 
-    /* NOTE: apache_* function registration happens in apex_child_init(), not
-     * here. php_embed_init() unconditionally overwrites
-     * php_embed_module.additional_functions with its own hardcoded array
-     * (just dl()) immediately before calling .startup(), so presetting the
-     * field in post_config (parent, pre-fork) is silently discarded in every
-     * child -- confirmed against sapi/embed/php_embed.c. */
+    /* NOTE: apache_* function registration is wired up via
+     * apex_php_embed_startup() below, not by presetting
+     * php_embed_module.additional_functions here. php_embed_init()
+     * unconditionally overwrites that field with its own hardcoded array
+     * (just dl()) immediately before calling .startup(), so a preset here
+     * (post_config, parent, pre-fork) is silently discarded in every child
+     * -- confirmed against sapi/embed/php_embed.c. Registering after
+     * php_embed_init() returns doesn't work either: by then
+     * zend_post_startup() (called at the tail end of php_module_startup())
+     * has already snapshotted the live function table into the process-wide
+     * GLOBAL_FUNCTION_TABLE that every *other* ZTS thread's compiler_globals
+     * gets zend_hash_copy()'d from at thread-creation time (Zend/zend.c),
+     * so late registration is only visible on the one thread that called
+     * it -- never on the actual Apache worker threads serving requests. */
 
     ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
                  "mod_apex: expected PHP handler mapping is 'php-script' or 'application/x-httpd-php'; "
@@ -1154,6 +1178,11 @@ static void apex_child_init(apr_pool_t *pchild, server_rec *s)
         return;
     }
 
+    /* See apex_php_embed_startup() above: this must be set before
+     * php_embed_init() calls .startup(), so our additional_functions
+     * assignment lands during MINIT instead of being silently discarded. */
+    php_embed_module.startup = apex_php_embed_startup;
+
     if (php_embed_init(1, php_argv) == FAILURE) {
         ap_log_error(APLOG_MARK, APLOG_CRIT, 0, s,
                      "mod_apex: php_embed_init() failed in child_init");
@@ -1163,17 +1192,6 @@ static void apex_child_init(apr_pool_t *pchild, server_rec *s)
 #ifdef ZEND_ENABLE_STATIC_TSRMLS_CACHE
     ZEND_TSRMLS_CACHE_UPDATE();
 #endif
-
-    /* Register the apache2handler-compatibility functions (apache_* +
-     * getallheaders) now that the engine is up. Must happen here, not via
-     * php_embed_module.additional_functions in post_config -- see the note
-     * there. zend_register_functions() is the same mechanism dl() uses to
-     * add functions after MINIT, so it's safe to call post-startup. */
-    if (zend_register_functions(NULL, apex_additional_functions, NULL,
-                                 MODULE_PERSISTENT) == FAILURE) {
-        ap_log_error(APLOG_MARK, APLOG_CRIT, 0, s,
-                     "mod_apex: failed to register apache2handler-compatibility functions");
-    }
 
     /* php_embed_init() runs php_module_startup() AND leaves an initial request
      * active (its matching php_request_shutdown() normally runs inside
