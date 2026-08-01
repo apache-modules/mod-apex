@@ -134,7 +134,8 @@ RUN a2enmod apex
 COPY docker/mpm_event.conf /etc/apache2/mods-available/mpm_event.conf
 COPY docker/keepalive-tuning.conf /etc/apache2/conf-available/keepalive-tuning.conf
 COPY docker/servername.conf /etc/apache2/conf-available/servername.conf
-RUN a2enconf keepalive-tuning servername
+COPY docker/security-hardening.conf /etc/apache2/conf-available/security-hardening.conf
+RUN a2enconf keepalive-tuning servername security-hardening
 
 COPY docker/000-mod-apex.conf /etc/apache2/sites-available/000-mod-apex.conf
 RUN a2dissite 000-default >/dev/null 2>&1 || true \

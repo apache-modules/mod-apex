@@ -57,7 +57,7 @@ JOBS="${JOBS:-$(nproc)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INI_DIR="$SCRIPT_DIR/php-ini"
 
-for cmd in curl tar make gcc phpize; do
+for cmd in curl tar make gcc; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "error: required command not found: $cmd" >&2
         exit 1

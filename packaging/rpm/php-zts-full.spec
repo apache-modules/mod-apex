@@ -12,7 +12,7 @@ URL:            https://www.php.net/
 # expected by the setup macro below.
 Source0:        %{name}-%{version}.tar.gz
 
-BuildRequires:  gcc, make, autoconf, automake, libtool, pkgconf-pkg-config
+BuildRequires:  gcc, gcc-c++, make, autoconf, automake, libtool, pkgconf-pkg-config
 BuildRequires:  curl, ca-certificates
 BuildRequires:  httpd-devel
 BuildRequires:  openssl-devel, libcurl-devel, zlib-devel, sqlite-devel
@@ -28,6 +28,16 @@ BuildRequires:  libsodium-devel, gmp-devel, ImageMagick-devel, libxml2-devel
 # detection in tools/build_php_zts_deb.sh.
 
 %global php_prefix /usr/local/php-zts
+
+# PHP's Zend engine VM uses GCC global register variables (opline/execute_data
+# pinned to specific registers for performance) in Zend/zend_execute.c and
+# ext/opcache/jit/zend_jit_vm_helpers.c. This is incompatible with GCC's LTO
+# (Fedora's default hardened build flags enable -flto=auto), which fails with
+# "global register variable follows a function definition" -- LTO needs to
+# merge translation units and can't honor a per-file register pinning
+# reliably. Disable LTO for this package (matches upstream Fedora's own
+# php.spec, which also disables LTO for the same reason).
+%undefine _lto_cflags
 
 %description
 Full PHP build with OPcache + JIT enabled, and the extension set required by
@@ -58,11 +68,10 @@ PREFIX=%{php_prefix} \
 DESTDIR=%{buildroot} \
 PHP_VERSION=%{php_version} \
 SRC_DIR=%{_builddir}/%{name}-%{version}/src \
-JOBS=%{?_smp_mflags:%{_smp_mflags}} \
+JOBS="$(nproc)" \
     ./packaging/build-php-zts.sh
 
 %files
-%license %{php_prefix}/etc/php.ini
 %{php_prefix}
 
 %changelog

@@ -3,7 +3,7 @@ Version: @VERSION@
 Section: web
 Priority: optional
 Architecture: @ARCH@
-Depends: libc6, @EXTRA_DEPENDS@
+Depends: @EXTRA_DEPENDS@
 Maintainer: mod_apex maintainers <maintainers@example.com>
 Description: Self-contained PHP (ZTS + embed SAPI) runtime for mod_apex
  Full PHP build with OPcache + JIT enabled, and the extension set required

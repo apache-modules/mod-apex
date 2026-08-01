@@ -87,7 +87,11 @@ declare -A seen_pkgs
 extra_depends=()
 for so in "${so_paths[@]}"; do
     [[ -f "$so" ]] || continue
-    pkg="$(dpkg -S "$so" 2>/dev/null | head -1 | cut -d: -f1)"
+    # dpkg tracks the resolved real file, not the SONAME symlink ldd reports,
+    # so resolve it first; either lookup can legitimately find no owning
+    # package (e.g. a lib installed outside apt), which isn't a fatal error.
+    real_so="$(realpath -e "$so" 2>/dev/null || echo "$so")"
+    pkg="$(dpkg -S "$real_so" 2>/dev/null | head -1 | cut -d: -f1 || true)"
     [[ -z "$pkg" || -n "${seen_pkgs[$pkg]:-}" ]] && continue
     seen_pkgs["$pkg"]=1
     extra_depends+=("$pkg")
@@ -95,7 +99,7 @@ done
 
 if [[ ${#extra_depends[@]} -eq 0 ]]; then
     echo "warning: could not auto-detect any runtime library packages via dpkg -S" >&2
-    EXTRA_DEPENDS_LINE="libssl3, zlib1g, libxml2"
+    EXTRA_DEPENDS_LINE="libc6, libssl3, zlib1g, libxml2"
 else
     IFS=', '; EXTRA_DEPENDS_LINE="${extra_depends[*]}"; unset IFS
 fi

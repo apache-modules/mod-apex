@@ -16,7 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PHP_VERSION="${PHP_VERSION:-8.4.21}"
-MOD_APEX_VERSION="${MOD_APEX_VERSION:-1.0.0}"
+MOD_APEX_VERSION="${MOD_APEX_VERSION:-0.1.6}"
 TOPDIR="${TOPDIR:-$REPO_ROOT/dist/rpmbuild}"
 TARGETS="${1:-all}"
 

@@ -1,262 +1,260 @@
 # mod_apex
 
-mod_apex is an Apache module that embeds PHP (ZTS) with a persistent per-thread runtime.
+**PHP that lives inside Apache -- not next to it.**
+
+mod_apex is an Apache module that embeds a persistent, per-thread PHP (ZTS)
+runtime directly into Apache's `event` MPM worker threads. No forked child
+processes reloading PHP on every request, no FastCGI socket hop to a
+separate PHP-FPM pool -- just your PHP app running in-process, in the same
+thread that's already handling the HTTP request.
+
+## Why mod_apex
+
+- **No proxy hop.** Unlike PHP-FPM, there's no FastCGI socket round-trip to
+  a separate worker pool -- PHP runs in the same Apache thread handling the
+  request.
+- **Modern, thread-safe, unlike `mod_php`.** Built with PHP's ZTS (Zend
+  Thread Safety) mode, so it runs natively on Apache's threaded `event` MPM
+  -- no forced fallback to single-threaded `prefork`, no one-process-per-
+  connection memory cost.
+- **OPcache + JIT that actually work.** Stock PHP's `embed` SAPI is
+  hardcoded out of OPcache's SAPI allowlist. mod_apex presents itself as
+  `apache2handler` to unlock full OPcache and JIT support -- something a
+  naive PHP-embed integration does not get for free.
+- **One less moving part.** No separate process manager to size, monitor,
+  or restart independently of Apache.
+
+Real benchmarking against PHP-FPM (same PHP build, extensions, and
+OPcache/JIT settings; `wrk -t2 -c100`), on both a trivial script and a full
+WordPress install:
+
+| Workload | mod_apex | PHP-FPM | Result |
+| --- | --- | --- | --- |
+| Trivial script, throughput | 22,245 req/s | 22,185 req/s | Essentially tied |
+| Trivial script, avg latency | 5.22 ms | 7.32 ms | mod_apex ~29% lower |
+| WordPress, throughput | 185.4 req/s | 185.3 req/s | Essentially tied |
+| WordPress, avg latency | 549.6 ms | 1.12 s | mod_apex ~2x lower |
+| WordPress, latency stdev / max | 279.8 ms / 1.99 s | 1.78 s / 9.33 s | mod_apex far more consistent |
+
+Throughput ties because both are ultimately bound by the same PHP execution
+and OPcache; the win is in latency and consistency -- no proxy queueing, no
+separate pool to saturate.
+
+## Features
+
+- Persistent per-thread PHP (ZTS/embed) runtime, no per-request process fork.
+- OPcache + JIT enabled and working (packaged builds ship JIT on by default:
+  `tracing` mode, 128M buffer).
+- Full extension set for real-world apps: APCu, Redis, Imagick, mbstring,
+  intl, zip, bcmath, soap, GD, sodium, gmp, curl, openssl, zlib, sqlite3,
+  PDO (sqlite3/mysqli), exif, xsl -- covering WordPress, Drupal, and Symfony.
+- Ships as a Docker image, Debian/Ubuntu `.deb` pair, or Fedora RPM pair --
+  all built from one shared script, so the PHP build, OPcache/JIT settings,
+  and extension list never drift between them.
+- Production-conscious defaults: generic (non-leaking) fatal-error pages,
+  with an opt-in `ApexVerboseErrors` for local debugging.
+- Compiler/linker hardening applied automatically
+  (`-D_FORTIFY_SOURCE=2 -fstack-protector-strong`, `-Wl,-z,relro -Wl,-z,now`).
 
 ## License
 
-Apache License 2.0 -- see [LICENSE](LICENSE).
+[PolyForm Internal Use License 1.0.0](https://polyformproject.org/licenses/internal-use/1.0.0) -- free to use and modify internally, redistribution not permitted -- see [LICENSE](LICENSE).
 
-## Requirements
+## Installation
 
-1. Apache 2.4 with `mpm_event` enabled.
-2. PHP 8.4+ (8.5+ compatible target) built with:
+### Option A: Docker
 
-```bash
-./configure --enable-embed --enable-maintainer-zts ...
-make
-sudo make install
+Self-contained Apache + PHP (ZTS/embed, OPcache+JIT) + mod_apex, built
+entirely from source in a multi-stage build ([Dockerfile](Dockerfile)).
+Works identically with Docker or Podman.
+
+**Quick start:**
+
+```sh
+docker build -t mod-apex .
+docker run --rm -p 8080:80 -v "$PWD/app:/var/www/html:ro" mod-apex
+curl -sS http://127.0.0.1:8080/test.php
 ```
 
-1. Build tools and headers (`apxs`, APR, APR-util, compiler toolchain).
+Mount your application's document root at `/var/www/html`; without a mount
+the image only serves the built-in [test.php](test.php) smoke-test page.
 
-## Compile And Install
+**Podman:** no rootless-specific changes are needed --
 
-Recommended (helper script):
-
-```bash
-# Build only (default for non-root users)
-./build-install.sh
-
-# Force install + module enable (requires root)
-sudo INSTALL_MODE=always ./build-install.sh
+```sh
+podman build -t mod-apex .
+podman run --rm -p 8080:80 -v "$PWD/app:/var/www/html:ro" mod-apex
 ```
 
-Script usage:
+The image still runs Apache as root internally (worker processes drop
+privileges to `www-data`, same as a normal package install), which
+`podman run` maps the same way `docker run` does.
 
-```bash
-./build-install.sh --help
+**Customizing the PHP build:** PHP/extension versions are `ARG`s at the top
+of the [Dockerfile](Dockerfile), overridable at build time:
+
+```sh
+docker build \
+  --build-arg PHP_VERSION=8.4.21 \
+  --build-arg APCU_VERSION=5.1.24 \
+  --build-arg REDIS_VERSION=6.1.0 \
+  --build-arg IMAGICK_VERSION=3.8.1 \
+  -t mod-apex .
 ```
 
-Environment controls:
+**Apache/PHP config baked into the image:** [docker/](docker) holds the
+exact files `COPY`'d in --
+[docker/apex.conf](docker/apex.conf) (mod_apex + `ApexVerboseErrors`),
+[docker/mpm_event.conf](docker/mpm_event.conf) (event MPM tuning),
+[docker/keepalive-tuning.conf](docker/keepalive-tuning.conf),
+[docker/servername.conf](docker/servername.conf),
+[docker/security-hardening.conf](docker/security-hardening.conf), and
+[docker/000-mod-apex.conf](docker/000-mod-apex.conf) (the default vhost).
+`php.ini`/OPcache/APCu/Redis/Imagick settings come from
+[packaging/php-ini](packaging/php-ini), installed to
+`/usr/local/php-zts/etc/conf.d/` during the build. Changing any of these
+requires editing the file and rebuilding the image, or overriding one at
+`docker run` time with a bind mount, e.g.
+`-v "$PWD/packaging/php-ini/opcache.ini:/usr/local/php-zts/etc/conf.d/10-opcache.ini:ro"`.
 
-- `PHP_PREFIX`: PHP ZTS prefix (default `/usr/local/php-zts`)
-- `PHP_CONFIG`: path/name for php-config (default `$PHP_PREFIX/bin/php-config`)
-- `APXS`: apxs command (default `apxs`)
-- `INSTALL_MODE`: `auto` (default), `always`, or `never`
+**Logs:** the container's `CMD` runs Apache in the foreground
+(`apache2ctl -D FOREGROUND`), so `docker logs <container>` shows Apache/PHP
+output directly. The same access/error logs also exist inside the container
+under `/var/log/apache2/`:
 
-Manual fallback compile/install:
-
-```bash
-PHP_PREFIX=/usr/local/php-zts
-PHP_CONFIG="$PHP_PREFIX/bin/php-config"
-PHP_INC="$($PHP_CONFIG --includes) -I$($PHP_CONFIG --include-dir)/sapi/embed"
-
-apxs -c -i -a \
- -Wc,"$PHP_INC" \
- -Wl,"-L$PHP_PREFIX/lib -lphp" \
- mod_apex.c
+```sh
+docker logs -f <container>
+docker exec <container> tail -f /var/log/apache2/error.log
 ```
 
-## Quick Validation
+### Option B: Server install (prebuilt `mod_apex.so` + `build-php-zts.sh`)
+
+Use this when you want to install straight onto a server without compiling
+mod_apex yourself -- you still need a PHP ZTS runtime, built once via the
+shared script, but mod_apex itself comes from an already-built `.so`/`.deb`.
+
+**1. Build the PHP ZTS runtime** (requires root; installs to
+`/usr/local/php-zts` by default):
+
+```bash
+sudo ./packaging/build-php-zts.sh
+```
+
+This compiles PHP (ZTS + embed + OPcache/JIT) and the APCu/Redis/Imagick
+extensions, and installs them to `/usr/local/php-zts`.
+
+**2. Install the prebuilt `mod_apex.so`:**
+
+```bash
+sudo dpkg -i dist/mod-apex_*.deb
+sudo apt-get -f install   # pulls in apache2/libapr1 if missing
+```
+
+This drops in `/usr/lib/apache2/modules/mod_apex.so` and
+`/etc/apache2/mods-available/apex.load`, and enables the module.
+
+Alternatively, copy the `.so` and load file manually if you're not on a
+`.deb`-based system:
+
+```bash
+sudo cp mod_apex.so /usr/lib/apache2/modules/mod_apex.so
+sudo tee /etc/apache2/mods-available/apex.load >/dev/null <<'EOF'
+LoadFile /usr/local/php-zts/lib/libphp.so
+LoadModule apex_module /usr/lib/apache2/modules/mod_apex.so
+EOF
+sudo a2enmod apex
+```
+
+On Fedora/RHEL-family systems, install the RPM pair instead (`php-zts-full`
+must be installed first, since `mod_apex.rpm` depends on it):
+
+```bash
+sudo dnf install ./dist/rpmbuild/RPMS/x86_64/php-zts-full-*.rpm
+sudo dnf install ./dist/rpmbuild/RPMS/x86_64/mod_apex-*.rpm
+```
+
+This installs PHP ZTS to `/usr/local/php-zts`, drops
+`/usr/lib64/httpd/modules/mod_apex.so`, and enables it via
+`/etc/httpd/conf.modules.d/10-mod_apex.conf` +
+`/etc/httpd/conf.d/mod_apex.conf`. Both RPMs are produced by
+`./tools/build_rpm.sh` (see [packaging/rpm](packaging/rpm) for the specs).
+
+**3. Route `.php` requests to mod_apex** (add to your vhost or
+`conf-available`, see [docker/apex.conf](docker/apex.conf) for a full
+example):
+
+```apache
+<FilesMatch \.php$>
+    SetHandler php-script
+</FilesMatch>
+```
+
+**4. Validate and restart:**
 
 ```bash
 sudo apachectl -t
 sudo systemctl restart apache2
-curl -sS http://127.0.0.1/sapi_check.php
-curl -sS http://127.0.0.1/test.php
+curl -sS http://127.0.0.1/test.php   # expect: sapi=apache2handler
 ```
 
-`test.php` is a smoke endpoint for benchmark stability and quick routing checks.
+### Disabling the distro's preinstalled PHP
 
-Expected `sapi_check.php` output:
-
-```text
-sapi=apache2handler
-```
-
-Note: mod_apex reports the SAPI name as `apache2handler` (not the stock `embed` name) so that OPcache's SAPI allowlist accepts it -- see [OPcache Support](#opcache-support) below. This is cosmetic/identification only; the actual request lifecycle is still the embed SAPI's `php_request_startup()`/`php_request_shutdown()` model.
-
-## OPcache Support
-
-PHP's OPcache accelerator refuses to activate on SAPIs that aren't on its internal allowlist (`ext/opcache/ZendAccelerator.c`, `accel_find_sapi()`): `apache`, `apache2handler`, `fastcgi`, `cgi-fcgi`, `fpm-fcgi`, `litespeed`, `uwsgi`, `frankenphp`, `ngx-php`, `cli-server`, plus `cli`/`phpdbg` with `opcache.enable_cli`. The stock embed SAPI name (`"embed"`) is not on that list, so `opcache_get_status()` silently returns `false` and every request fully re-lexes/parses/compiles the entire script + its includes from scratch -- verified to be independent of mod_apex's own request lifecycle or threading (reproduced with a standalone single-thread and multi-pthread `php_embed_init()` harness with no Apache involved at all).
-
-Since mod_apex already runs a single `php_embed_init()`/`php_module_startup()` at child-init time followed by many per-request `php_request_startup()`/`php_request_shutdown()` cycles (the same "one MINIT, many RINIT" model the allowlisted SAPIs use), it is safe to report a matching SAPI name. `apex_post_config()` sets:
-
-```c
-php_embed_module.name        = "apache2handler";
-php_embed_module.pretty_name = "mod_apex (embedded PHP via Apache, OPcache-compatible SAPI name)";
-```
-
-before Apache forks child processes, so every child inherits it. This is what unlocks OPcache -- no other configuration is required beyond the normal `zend_extension=opcache.so` + `opcache.enable=1` ini settings.
-
-Side effect: `php_sapi_name()` now reports `"apache2handler"` instead of `"embed"` inside PHP scripts running under mod_apex. This is purely a string identity change (no behavior depends on it in this codebase); if application code branches on `php_sapi_name() === 'embed'` specifically, update it to check for `'apache2handler'` (or check for a mod_apex-specific marker instead).
-
-### Recommended opcache.ini tuning
-
-- `opcache.validate_timestamps=0` -- skips a per-request `fstat()` staleness check on every included file. Doesn't move throughput much on its own, but noticeably reduces socket timeouts/read errors under concurrent load in testing. Since this disables automatic pickup of edited PHP files, restart/reload Apache (or `opcache_reset()`) as part of your deploy process when using it.
-- `opcache.jit` (`tracing`, 128M buffer) is enabled by default in the packaged builds (Docker image and `php-zts-full` Debian/Fedora packages, see [Packaging](#packaging)) -- confirmed active via `opcache_get_status()` (non-zero JIT buffer size). An earlier test against a real WordPress install with a smaller buffer showed no measurable request-latency improvement (expected, since CMS page rendering is object/array/hook-heavy rather than the tight numeric loops JIT optimizes), but it's left on by default for workloads that do benefit (numerically heavy application code, Symfony/Drupal business logic with hot loops); it costs negligible fixed memory and doesn't regress the already-OPcache-dominated CMS case. Set `opcache.jit=off` in `conf.d/10-opcache.ini` if you want to rule it out as a variable.
-- Once OPcache is active, remaining latency under high concurrency is genuine CPU cost of executing application code (confirmed via `top`/`vmstat` showing full CPU saturation, not database or lock contention) -- further gains require reducing per-request PHP work (page/object caching, fewer plugins) or more CPU capacity, not additional php.ini tuning.
-
-## Packaging
-
-mod_apex ships four packaging paths, all built from the same shared script ([`packaging/build-php-zts.sh`](packaging/build-php-zts.sh)) so the PHP configure flags, OPcache/JIT settings, and extension list never drift between them:
-
-- **Docker image** ([`Dockerfile`](Dockerfile)): self-contained Apache + PHP (ZTS/embed, OPcache+JIT) + mod_apex, built entirely from source in a multi-stage build.
-
-  ```sh
-  docker build -t mod-apex .
-  docker run --rm -p 8080:80 -v "$PWD/app:/var/www/html:ro" mod-apex
-  ```
-
-- **Debian/Ubuntu**: two `.deb` packages.
-  - `php-zts-full` -- the PHP runtime itself, built by [`tools/build_php_zts_deb.sh`](tools/build_php_zts_deb.sh), which stages a build via `packaging/build-php-zts.sh` and auto-derives its runtime `Depends:` from the actual linked shared libraries (`ldd` + `dpkg -S`), so it should be run **inside a container/chroot of the actual target release** (e.g. `debian:bookworm`, `debian:trixie`, `ubuntu:jammy`, `ubuntu:noble`) rather than assumed portable across releases.
-
-    ```sh
-    ./tools/build_php_zts_deb.sh
-    sudo dpkg -i dist/php-zts-full_*.deb && sudo apt-get -f install
-    ```
-
-  - `mod-apex` -- the Apache module itself (see [Bundle mod_apex For Debian/Ubuntu Download](#bundle-mod_apex-for-debianubuntu-download) below), installed after `php-zts-full`.
-- **Fedora**: two RPMs built with [`tools/build_rpm.sh`](tools/build_rpm.sh) from [`packaging/rpm/php-zts-full.spec`](packaging/rpm/php-zts-full.spec) and [`packaging/rpm/mod_apex.spec`](packaging/rpm/mod_apex.spec). Must be run on Fedora (or a Fedora container) with `rpm-build` and the specs' `BuildRequires` installed via `dnf`, since (unlike the `.deb` path) the RPM spec relies on `rpmbuild`'s automatic ELF dependency scanner rather than a manually-derived `Depends:` list.
-
-  ```sh
-  dnf install -y rpm-build gcc make httpd-devel openssl-devel libcurl-devel \
-      zlib-devel sqlite-devel oniguruma-devel libicu-devel libzip-devel \
-      libxslt-devel freetype-devel libjpeg-turbo-devel libwebp-devel \
-      libpng-devel libsodium-devel gmp-devel ImageMagick-devel libxml2-devel
-  ./tools/build_rpm.sh
-  sudo dnf install -y dist/rpmbuild/RPMS/*/php-zts-full-*.rpm dist/rpmbuild/RPMS/*/mod_apex-*.rpm
-  ```
-
-All packaging paths install PHP to `/usr/local/php-zts` and include the same extension set: curl, mbstring, openssl, zlib, sqlite3, PDO (sqlite3/mysqli), exif, intl, zip, bcmath, soap, xsl, gd (freetype/jpeg/webp), sodium, gmp, plus the APCu, Redis, and Imagick PECL extensions -- covering the requirements of WordPress, Drupal, and Symfony.
-
-Note that `phpize`/`php-config` resolve their extension_dir/build paths from the `--prefix` compiled into `php-config`, not from any `DESTDIR` override -- so `packaging/build-php-zts.sh` always installs PHP and the PECL extensions for real to `$PREFIX` first (requiring root/write access to `/usr/local` when `$PREFIX` is the default `/usr/local/php-zts`), then stages a copy into `$DESTDIR$PREFIX` only at the end for packaging. This full install-then-stage mechanism (main PHP build + all three PECL extensions + staging copy) was validated end-to-end in this repo's dev environment using a writable, non-default `PREFIX`/`DESTDIR` (since the dev host has no passwordless root); the Fedora RPM spec parsing / build-script wiring was validated with `rpmbuild` in the same environment (a full compile wasn't run there, since the target `BuildRequires` are Fedora-only packages). A full production build against the real `/usr/local/php-zts` prefix requires running these scripts as root (e.g. in a container or CI job), which is the expected/typical way packages are built.
-
-## Security Hardening
-
-### Compiler/linker hardening
-
-`build-install.sh` compiles and links with hardening flags applied automatically:
-
-- Compile: `-D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wformat -Werror=format-security`
-- Link: `-Wl,-z,relro -Wl,-z,now`
-
-No configuration is required; these are always passed via `APXS_ARGS`.
-
-### `ApexVerboseErrors` directive
-
-Controls whether mod_apex's fatal-error response page includes internal diagnostic detail (for example PHP/plugin/extension incompatibility hints) or a generic message.
-
-```apache
-<IfModule apex_module>
-    # Off (default): generic error body, no internal detail leaked to clients.
-    # On: verbose diagnostic body, useful in development/staging only.
-    ApexVerboseErrors Off
-</IfModule>
-```
-
-- Default: `Off`.
-- Scope: `RSRC_CONF` (server/vhost config, inherited unless explicitly overridden per-vhost).
-- Keep `Off` in production to avoid leaking internal details to clients.
-
-### Trusted proxy / forwarded headers
-
-mod_apex exposes every incoming request header to PHP as `$_SERVER['HTTP_*']`, the same as mod_php/PHP-FPM/CGI. This means `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-For`, and `X-Real-IP` are only as trustworthy as any other client-supplied header — mod_apex does not (and should not) filter or gate them itself.
-
-If this Apache sits behind a reverse proxy/load balancer:
-
-- Use Apache's `mod_remoteip` (not mod_apex) to correctly resolve `REMOTE_ADDR` from a trusted proxy:
-
-  ```apache
-  LoadModule remoteip_module modules/mod_remoteip.so
-  RemoteIPHeader X-Forwarded-For
-  RemoteIPTrustedProxy 127.0.0.1
-  ```
-
-- Validate/strip forwarded headers at the proxy/load balancer, or at the application/framework layer (Symfony trusted proxies, Laravel `TrustProxies`), rather than trusting them implicitly in PHP.
-
-See [httpd.conf](httpd.conf) for a ready-to-use example.
-
-## Troubleshooting
-
-### 1) `php-config` not found
-
-Symptom:
-
-```text
-error: php-config not found
-```
-
-Fix:
+Most distros ship PHP built **NTS (Non Thread Safe)** -- fine for
+single-threaded `prefork`/CGI/FPM use, but unsafe to load into Apache's
+threaded `event` MPM, which is why mod_apex requires its own separate
+**ZTS (Zend Thread Safe)** build instead. The distro's NTS build shows up in
+two places that both need to be disabled so they don't fight mod_apex for
+the `.php` handler or keep Apache pinned to `prefork`:
 
 ```bash
-PHP_PREFIX=/usr/local/php-zts ./build-install.sh
-# or
-PHP_CONFIG=/path/to/php-config ./build-install.sh
-```
+# Disable mod_php (NTS, tied to prefork) and force the threaded event MPM
+# mod_apex requires
+sudo a2dismod php8.4 || true          # match your installed PHP version
+sudo a2dismod mpm_prefork || true
+sudo a2enmod mpm_event
 
-### 2) Linker errors for `-lphp` or missing embed symbols
+# If a distro php-fpm service (also NTS) is running and not otherwise in
+# use, stop it
+sudo systemctl disable --now php8.4-fpm || true
 
-Symptom:
-
-```text
-cannot find -lphp
-```
-
-Fix:
-
-1. Confirm your PHP build includes `--enable-embed --enable-maintainer-zts`.
-2. Confirm `libphp` exists under your PHP prefix, for example `/usr/local/php-zts/lib`.
-3. Rebuild/install using the helper script so include and link flags are applied consistently.
-
-### 3) Apache starts but PHP source is served instead of executed
-
-Symptom:
-
-`.php` files return raw source code in HTTP response.
-
-Fix:
-
-1. Ensure `apex` module is loaded.
-2. Ensure `.php` is mapped to `php-script` or `application/x-httpd-php`.
-3. Restart Apache and check `sapi_check.php` returns `sapi=apache2handler`.
-
-This module now fails fast on bad mapping: mis-mapped `.php` requests return `500` and log an explicit mapping error.
-
-### 4) Wrong MPM mode
-
-Symptom:
-
-Apache logs include messages indicating threaded MPM is required.
-
-Fix:
-
-```bash
-sudo a2dismod mpm_prefork php8.4 || true
-sudo a2enmod mpm_event apex
+sudo apachectl -t
 sudo systemctl restart apache2
 ```
 
-### 5) Verify active runtime quickly
+Verify only mod_apex is serving PHP afterward:
 
 ```bash
 sudo apachectl -M | grep -E 'apex_module|mpm_event_module|php_module'
-curl -sS http://127.0.0.1/sapi_check.php
+# expect: apex_module and mpm_event_module present, php_module absent
 ```
 
-Expected:
+The distro's NTS **`php` CLI binary** itself is unaffected by the above --
+it stays installed (used by cron jobs, composer, CLI scripts, etc.) and
+that's fine, since it never loads into Apache. If you need to make the ZTS
+build your default `php` on the CLI too (or just want to avoid ambiguity
+about which `php` a script picks up):
 
-1. `apex_module` and `mpm_event_module` are present.
-2. `php_module` is absent for embed runtime.
-3. `sapi_check.php` outputs `sapi=embed`.
-
-High-Load Apache Tuning (100+ Connections)
-
-When running `wrk` with `-c100` or higher, tune the live Apache config under `/etc/apache2` (not only the project-local `httpd.conf`).
-
-1) Event MPM tuning (`/etc/apache2/mods-enabled/mpm_event.conf`)
-
+```bash
+sudo update-alternatives --config php
+# or bypass alternatives entirely and call the ZTS binary directly:
+/usr/local/php-zts/bin/php -v
 ```
+
+## Settings For Best Performance
+
+**`opcache.ini`:**
+
+- `opcache.validate_timestamps=0` -- skips a per-request file-staleness
+  check. Restart/reload Apache (or call `opcache_reset()`) as part of your
+  deploy process when using it.
+- `opcache.jit=tracing` with `opcache.jit_buffer_size=128M` -- enabled by
+  default in packaged builds; negligible fixed cost, helps numerically-heavy
+  application code.
+
+**Apache event MPM** (`/etc/apache2/mods-enabled/mpm_event.conf`), tuned for
+100+ concurrent connections:
+
+```apache
 StartServers            4
 ServerLimit             32
 ThreadLimit             64
@@ -267,363 +265,168 @@ MaxRequestWorkers       2048
 MaxConnectionsPerChild  0
 ```
 
-`MaxSpareThreads` is set to `ServerLimit*ThreadsPerChild` (the max possible
-thread count) so idle spare threads can never exceed it and Apache never
-scale-down-kills a child process. This matters if you also run a parallel
-mod_proxy/mod_proxy_fcgi route (see "Enable FPM Path in Apache" below): a
-child killed while still holding pooled backend connections has been
-observed to crash stock Apache's `mod_proxy` (`ap_proxy_acquire_connection`
-reslist-cleanup NULL deref), unrelated to mod_apex.
+Set `MaxSpareThreads` to `ServerLimit*ThreadsPerChild` so idle spare threads
+can never exceed the max and Apache never scale-down-kills a child
+mid-flight -- this avoids a known stock-Apache `mod_proxy` crash if you also
+run a parallel proxied route.
 
-1) Keepalive tuning (`/etc/apache2/apache2.conf`)
-
-Locked low-error mode (current default on this host):
-
-```
-KeepAlive Off
-MaxKeepAliveRequests 10000
-KeepAliveTimeout 5
-```
-
-Optional high-throughput mode (higher requests/sec, but higher read socket errors under extreme persistent-connection tests):
-
-```
-KeepAlive On
-MaxKeepAliveRequests 10000
-KeepAliveTimeout 1
-```
-
-Quick Copy/Paste for project-local [httpd.conf](httpd.conf)
+**Keepalive** (`/etc/apache2/apache2.conf`):
 
 ```apache
-<IfModule mpm_event_module>
- StartServers 4
- ServerLimit 32
- ThreadLimit 64
- ThreadsPerChild 64
- MinSpareThreads 128
- MaxSpareThreads 2048
- MaxRequestWorkers 2048
- MaxConnectionsPerChild 0
-</IfModule>
-
 KeepAlive Off
 MaxKeepAliveRequests 10000
 KeepAliveTimeout 5
 ```
 
-On Debian/Ubuntu, Apache service mode reads `/etc/apache2/*` as the live runtime config.
-
-Helper script for the live Apache profile:
+**Linux host limits** (for very high connection counts):
 
 ```bash
-sudo ./tools/apache_10k_tune.sh
-```
-
-One-command mode switch (throughput vs low-error):
-
-```bash
-./tools/apache_mode.sh status
-./tools/apache_mode.sh throughput
-./tools/apache_mode.sh low-error
-```
-
-`throughput` favors maximum RPS and may increase read socket errors at extreme concurrency.
-`low-error` reduces socket-error frequency and crash risk signals at the cost of throughput.
-
-Web asset performance profile (cache + compression):
-
-```bash
-./tools/apache_asset_perf.sh status
-sudo ./tools/apache_asset_perf.sh apply
-```
-
-This profile improves frontend load speed for common PHP apps by:
-
-- enabling cache headers for static assets (`css`, `js`, images, fonts)
-- enabling Brotli/Deflate compression for text assets
-- keeping dynamic responses (`php`, `html`, JSON) uncached
-
-To disable and return to previous behavior:
-
-```bash
-sudo ./tools/apache_asset_perf.sh remove
-```
-
-`apache_10k_tune.sh` backs up the live Apache files once, applies the 10,000-connection values, validates syntax, and restarts Apache.
-
-Helper script for the Linux-side limits:
-
-```bash
-sudo ./tools/os_10k_tune.sh
-```
-
-The script backs up the relevant host config, applies the file-descriptor and kernel queue limits, writes a systemd override for Apache, and restarts Apache.
-
-1) Linux OS-side limits for 10,000 connections
-
-Apache settings alone are not enough at this scale. Raise process, socket, and file-descriptor limits on the host too.
-
-Example system-wide tuning:
-
-```bash
-# File descriptor limit for the Apache service user
 ulimit -n 65535
-
-# Kernel/network backlog and queueing
 sudo sysctl -w net.core.somaxconn=65535
 sudo sysctl -w net.ipv4.tcp_max_syn_backlog=65535
 sudo sysctl -w net.ipv4.ip_local_port_range='1024 65000'
 ```
 
-Persist these in host config as needed:
+Once OPcache is active, remaining latency under high concurrency is genuine
+CPU cost of executing application code -- further gains require reducing
+per-request PHP work (page/object caching, fewer plugins) or more CPU
+capacity, not additional tuning.
 
-```ini
-# /etc/security/limits.conf
-www-data soft nofile 65535
-www-data hard nofile 65535
-```
+## Troubleshooting
 
-```ini
-# /etc/systemd/system/apache2.service.d/override.conf
-[Service]
-LimitNOFILE=65535
-```
+**Module fails to load / `apachectl -t` errors on `LoadFile`/`LoadModule`:**
+Confirm `LoadFile /usr/local/php-zts/lib/libphp.so` points at the actual
+install prefix (`PREFIX` at build time, `/usr/local/php-zts` by default) and
+that the file exists -- a mismatched prefix (e.g. built with a custom
+`PREFIX` but the config still points at the default) is the most common
+cause.
 
-If you apply the systemd override, reload and restart Apache:
+**Error log shows `mod_apex: requires a threaded MPM; skipping PHP engine
+init in this process`:** `mpm_prefork` is still active instead of
+`mpm_event`. Run through
+[Disabling the distro's preinstalled PHP](#disabling-the-distros-preinstalled-php)
+again and confirm with `sudo apachectl -M | grep mpm`.
 
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart apache2
-```
+**`.php` requests return 500, or the error log shows `mod_apex: expected PHP
+handler mapping is 'php-script' or 'application/x-httpd-php'`:** the
+`<FilesMatch \.php$>` block routing to `SetHandler php-script` is missing or
+was overridden by another vhost/`.htaccess`. See [httpd.conf](httpd.conf) or
+[docker/apex.conf](docker/apex.conf) for the expected block.
 
-1) Validate and reload
-
-```bash
-sudo apachectl -t
-sudo systemctl restart apache2
-systemctl is-active apache2
-```
-
-1) Benchmark check (clean mode)
-
-```bash
-wrk -t2 -c1000 -d15s http://127.0.0.1/test.php
-wrk -t2 -c1000 -d15s http://127.0.0.1/fpm/test.php
-```
-
-Crash-regression gate for benchmark runs:
+**Error log shows `mod_apex: php_embed_init() failed in child_init`:** PHP's
+own startup failed (bad `php.ini` directive, an extension that failed to
+load, etc.) -- Apache's error log is intentionally terse here since this
+happens deep in PHP engine init. Run the ZTS CLI binary directly for a much
+more detailed error:
 
 ```bash
-./tools/apache_crash_watch.sh -- wrk -t2 -c1000 -d60s http://127.0.0.1/test.php
-./tools/apache_crash_watch.sh -- wrk -t2 -c1000 -d60s http://127.0.0.1/fpm/test.php
+/usr/local/php-zts/bin/php -v
+/usr/local/php-zts/bin/php -m       # lists loaded extensions
+/usr/local/php-zts/bin/php --ini    # shows which php.ini/scan dirs are used
 ```
 
-Optional: truncate Apache error log before each gate run:
+**`opcache_get_status()` returns `false` / no OPcache speedup observed:**
+means PHP is running under the stock `"embed"` SAPI name instead of the
+`"apache2handler"` override `apex_post_config` sets -- see the "Known
+Pitfalls" entry in [AGENTS.md](AGENTS.md) for the full explanation. Confirm
+with `php_sapi_name()` in a request (see [test.php](test.php)) -- it should print
+`apache2handler`, not `embed`.
+
+**Fatal errors show a generic message instead of details, even locally:**
+this is intentional (`ApexVerboseErrors` defaults to `Off` to avoid leaking
+internal details in production). Temporarily set `ApexVerboseErrors On` in
+the vhost/`<IfModule apex_module>` block, reproduce, then set it back to
+`Off` before shipping -- never leave it `On` in production.
+
+**Crashes or segfaults under load:** use
+[tools/apache_crash_watch.sh](tools/apache_crash_watch.sh) to wrap a
+benchmark and watch for crash signatures
+(`AH00051`, `reslist_cleanup`, `Segmentation fault`, `exit signal Abort`,
+`AH02537`) in the error log plus any new files under
+`/var/lib/apache2/coredumps`:
 
 ```bash
 TRUNCATE_LOG=1 ./tools/apache_crash_watch.sh -- wrk -t2 -c1000 -d60s http://127.0.0.1/test.php
 ```
 
-Production readiness gate (covers guardrails, soak, SLO sample, canary stages, and restart drill):
+One known cause: `MaxSpareThreads` not matching `ServerLimit*ThreadsPerChild`
+(see [Settings For Best Performance](#settings-for-best-performance)) lets
+Apache scale-down-kill a child mid-flight; if that child still holds pooled
+`mod_proxy`/`mod_proxy_fcgi` backend connections, stock Apache's `mod_proxy`
+can crash on the resulting reslist cleanup.
+
+**Distro PHP (`mod_php`/`php-fpm`) still seems to be handling requests:**
+re-run
+[Disabling the distro's preinstalled PHP](#disabling-the-distros-preinstalled-php)
+and verify with:
 
 ```bash
-SOAK_SECONDS=60 SHORT_SECONDS=10 ./tools/prod_readiness_gate.sh
+sudo apachectl -M | grep -E 'apex_module|mpm_event_module|php_module'
+# expect: apex_module and mpm_event_module present, php_module absent
 ```
 
-For a stricter run, increase soak duration and thresholds via environment variables:
+**Quick diagnostic commands:**
 
 ```bash
-SOAK_SECONDS=1800 SHORT_SECONDS=30 APP_RPS_MIN=12000 APP_READ_ERR_MAX=5000 ./tools/prod_readiness_gate.sh
+sudo apachectl -M                              # confirm loaded modules
+curl -sS http://127.0.0.1/test.php             # confirm SAPI + basic response
+sudo tail -f /var/log/apache2/error.log         # watch startup/request errors live
 ```
 
-Key gate variables:
+## Production Readiness
 
-- `BASE_URL` (default `http://127.0.0.1`)
-- `APP_PATH` (default `/wordpress`)
-- `APEX_PATH` (default `/test.php`)
-- `FPM_PATH` (default `/fpm/test.php`)
-- `SOAK_SECONDS`, `SHORT_SECONDS`
-- `APP_RPS_MIN`, `APP_READ_ERR_MAX`
-- `CANARY_RPS_MIN`, `CANARY_READ_ERR_MAX`
+Two gate scripts in [tools/](tools) automate the checks worth running before
+(and periodically after) a production rollout:
 
-Security gate (covers static analysis/hardening, edge-input checks, dependency/update checks, app/security behavior tests, and least-privilege/service hardening):
+- **[tools/prod_readiness_gate.sh](tools/prod_readiness_gate.sh)** --
+  guardrails (`apachectl -t`, service active, health endpoints for the
+  mod_apex/FPM/app routes), then a soak-and-crash gate (a sustained `wrk`
+  load run through `apache_crash_watch.sh`, failing if any new core dumps or
+  crash-signature log lines appear), then throughput/latency threshold
+  checks against configurable minimums (`APP_RPS_MIN`, `APP_READ_ERR_MAX`,
+  etc.).
+- **[tools/security_gate.sh](tools/security_gate.sh)** -- five categories:
+  static analysis/hardening (`cppcheck` if available, banned libc calls like
+  `strcpy`/`system`/`gets` in [mod_apex.c](mod_apex.c), compiler hardening
+  flags present), fuzz/edge-input handling (oversized and special-character
+  headers, conflicting `Content-Length`/`Transfer-Encoding` requests),
+  dependency/update checks (pending `apache2`/`php`/`libapr`/`openssl`
+  upgrades), the security/compat behavior suite
+  ([tools/common_app_compat_smoke.sh](tools/common_app_compat_smoke.sh)),
+  and least-privilege/service hardening (worker running as `www-data`,
+  `mod_apex.so` not group/other-writable, systemd `LimitNOFILE` override
+  present, threaded `mpm_event` active).
+
+Run both against a staging environment that mirrors production before every
+rollout; treat any `FAIL` as blocking and any `WARN` as worth reviewing
+(e.g. a pending security update) even if not strictly blocking:
 
 ```bash
 ./tools/security_gate.sh
+./tools/prod_readiness_gate.sh
 ```
 
-Optional: skip package update checks if your environment blocks apt metadata refresh/listing:
+**Production checklist** (defaults already applied by the packaged builds
+unless noted):
 
-```bash
-INCLUDE_UPDATE_CHECKS=0 ./tools/security_gate.sh
-```
-
-One-command remediation + recheck (installs missing tools, applies safe package update, reruns security gate):
-
-```bash
-./tools/security_remediate_and_recheck.sh
-```
-
-Expected in locked low-error mode:
-
-1. Lower read socket errors than keepalive-on mode.
-2. Lower throughput than keepalive-on mode.
-3. Under extreme local stress (`-t2 -c1000 -d15s`), small non-zero read errors can still appear.
-
-Enable FPM Path in Apache
-
-If you want a parallel PHP-FPM path while keeping default `.php` handling on `mod_apex`, configure `/fpm/...` as follows.
-
-1) Ensure Apache modules and FPM service are enabled
-
-```bash
-sudo a2enmod proxy proxy_fcgi
-sudo systemctl enable --now php8.4-fpm
-```
-
-1) Create the Apache FPM route config
-
-```bash
-sudo tee /etc/apache2/conf-available/apex-parallel-fpm.conf >/dev/null <<'EOF'
-Alias /fpm/ /var/www/html/
-
-<Directory /var/www/html>
- Require all granted
-</Directory>
-
-# Keep FastCGI backend timeout explicit under load.
-ProxyTimeout 60
-
-# Route only /fpm/*.php to php-fpm.
-ProxyPassMatch "^/fpm/(.*\.php(/.*)?)$" "unix:/run/php/php8.4-fpm.sock|fcgi://localhost/var/www/html/$1"
-EOF
-```
-
-> **Known issue:** combining this proxy route with an MPM config where
-> `MaxSpareThreads` is well below `ServerLimit*ThreadsPerChild` can trigger a
-> segfault in stock Apache's `mod_proxy` (`ap_proxy_acquire_connection`,
-> `apr_reslist.c` assertion) when an idle child holding pooled FastCGI
-> connections gets scale-down-killed under load. This is an Apache/APR bug,
-> not mod_apex or php-fpm. Fix: set `MaxSpareThreads` to
-> `ServerLimit*ThreadsPerChild` as shown above so idle children are never
-> recycled mid-flight.
-
-1) Enable config and reload Apache
-
-```bash
-sudo a2enconf apex-parallel-fpm
-sudo apachectl -t
-sudo systemctl restart apache2
-```
-
-1) Validate route and modules
-
-```bash
-sudo apachectl -M | egrep 'proxy_module|proxy_fcgi_module|apex_module'
-curl -i http://127.0.0.1/fpm/test.php
-```
-
-Expected: `/fpm/test.php` returns HTTP 200 and is handled by FPM while `/test.php` stays on `mod_apex`.
-
-Parallel runtime benchmark (mod_apex vs php-fpm)
-
-Use the helper script to compare throughput and latency between the default `mod_apex` route and the parallel `/fpm/` route:
-
-```bash
-./tools/apex_fpm_bench.sh
-```
-
-Optional tuning via environment variables:
-
-```bash
-THREADS=2 CONNECTIONS=200 DURATION=15s BASE_URL=http://127.0.0.1 ./tools/apex_fpm_bench.sh
-```
-
-Defaults:
-
-- `APEX_PATH=/test.php`
-- `FPM_PATH=/fpm/test.php`
-
-The script writes raw `wrk` outputs to:
-
-- `./apex_wrk_last.txt`
-- `./fpm_wrk_last.txt`
-
-Expected outcome after tuning:
-
-- Lower or no `Socket errors: read ...` on the PHP endpoint.
-- Substantially reduced read socket errors on static endpoint benchmark runs.
-
-Notes
-
-- `mod_apex` includes a threaded-MPM safety guard; keep Apache on `mpm_event` for production.
-- If read errors remain under extreme local benchmarks, investigate OS networking limits and local client-side test environment next.
-
-Common PHP App Compatibility Probe
-
-Use [probes/common-app-probe.php](probes/common-app-probe.php) to verify framework-critical `$_SERVER` behavior.
-
-```bash
-sudo cp probes/common-app-probe.php /var/www/html/common-app-probe.php
-
-# Basic auth mapping check
-curl -sS -u appuser:apppass 'http://127.0.0.1/common-app-probe.php?route=login'
-
-# Proxy and front-controller path check
-curl -sS \
- -H 'X-Forwarded-Proto: https' \
- -H 'X-Forwarded-Host: app.example.com' \
- -H 'X-Forwarded-For: 203.0.113.5' \
- 'http://127.0.0.1/common-app-probe.php/index.php/admin/users?x=1'
-```
-
-Automated compatibility smoke (pass/fail)
-
-```bash
-./tools/common_app_compat_smoke.sh
-```
-
-Optional with performance sanity check:
-
-```bash
-RUN_WRK=1 ./tools/common_app_compat_smoke.sh
-```
-
-Bundle mod_apex For Debian/Ubuntu Download
-
-Use the package builder to produce a distributable `.deb` artifact:
-
-```bash
-cd /home/bode/sites/mod_apex
-chmod +x tools/build_deb.sh
-VERSION=0.1.2 ./tools/build_deb.sh
-```
-
-If your PHP embed install is not under `/usr/local/php-zts`, point the builder at the correct PHP config:
-
-```bash
-PHP_CONFIG=/path/to/php-config VERSION=0.1.2 ./tools/build_deb.sh
-# or
-PHP_PREFIX=/custom/php-zts VERSION=0.1.2 ./tools/build_deb.sh
-```
-
-Output:
-
-- `dist/mod-apex_<version>_<arch>.deb`
-
-Install on Debian/Ubuntu:
-
-```bash
-sudo dpkg -i dist/mod-apex_0.1.2_$(dpkg --print-architecture).deb
-sudo apt-get -f install
-sudo apachectl -t
-sudo systemctl restart apache2
-```
-
-Notes:
-
-- The package installs `mod_apex.so` and `/etc/apache2/mods-available/apex.load`.
-- `apex.load` is generated at package-build time from your selected `php-config`.
-- The builder fails fast if `php-config --configure-options` does not include PHP embed and ZTS (`--enable-embed` and `--enable-zts` or `--enable-maintainer-zts`).
-- Target systems must provide compatible PHP ZTS embed library at the same path detected during package build.
+- `ApexVerboseErrors Off` (default) -- generic fatal-error pages, no internal
+  detail leaked to clients.
+- `opcache.validate_timestamps=0` -- and `opcache_reset()` (or an Apache
+  reload) wired into your deploy process, since file changes won't be
+  picked up otherwise.
+- MPM/keepalive tuned per
+  [Settings For Best Performance](#settings-for-best-performance), with
+  `MaxSpareThreads` correctly bounded.
+- Distro `mod_php`/`php-fpm` (NTS) disabled -- see
+  [Disabling the distro's preinstalled PHP](#disabling-the-distros-preinstalled-php).
+- Apache worker processes running as an unprivileged user (`www-data`), not
+  `root`.
+- `mod_apex.so` not writable by group/other (`644`/`640`/`444`).
+- A systemd override raising `LimitNOFILE` for the Apache service under high
+  concurrency.
+- Compiler/linker hardening flags in place (`-D_FORTIFY_SOURCE=2
+  -fstack-protector-strong`, `-Wl,-z,relro -Wl,-z,now`) -- already applied
+  automatically by [build-install.sh](build-install.sh); verify with
+  `apxs -q CFLAGS` or `security_gate.sh`'s static-analysis check.
+- No pending security-relevant package updates
+  (`apache2`/`php`/`libapr`/`openssl`) on the host.

@@ -1,0 +1,79 @@
+/*
+   +----------------------------------------------------------------------+
+   | PHP Version 5 / Imagick	                                          |
+   +----------------------------------------------------------------------+
+   | Copyright (c) 2006-2013 Mikko Koppanen, Scott MacVicar               |
+   | ImageMagick (c) ImageMagick Studio LLC                               |
+   +----------------------------------------------------------------------+
+   | This source file is subject to version 3.01 of the PHP license,      |
+   | that is bundled with this package in the file LICENSE, and is        |
+   | available through the world-wide-web at the following url:           |
+   | http://www.php.net/license/3_01.txt                                  |
+   | If you did not receive a copy of the PHP license and are unable to   |
+   | obtain it through the world-wide-web, please send a note to          |
+   | license@php.net so we can mail you a copy immediately.               |
+   +----------------------------------------------------------------------+
+   | Author: Mikko Kopppanen <mkoppanen@php.net>                          |
+   |         Scott MacVicar <scottmac@php.net>                            |
+   +----------------------------------------------------------------------+
+*/
+
+#ifndef PHP_IMAGICK_MACROS_H
+# define PHP_IMAGICK_MACROS_H
+
+#define EXTRACT_BUILD_NUMBER(str) ({ \
+    int build = 0; \
+    const char *s = str; \
+    while (*s && !isdigit(*s)) s++; \
+    if (*s) build = atoi(s); \
+    build; \
+})
+
+#define MAGICK_LIB_VERSION_MAJOR ((MagickLibVersion >> 8) & 0xFF)
+#define MAGICK_LIB_VERSION_MINOR ((MagickLibVersion >> 4) & 0xF)
+#define MAGICK_LIB_VERSION_PATCH (MagickLibVersion & 0xF)
+#define MAGICK_LIB_VERSION_BUILD EXTRACT_BUILD_NUMBER(MagickLibAddendum)
+
+#define MAGICK_LIB_VERSION_GTE(major, minor, patch, build) \
+    ((VERSION_MAJOR > (major)) || \
+    (VERSION_MAJOR == (major) && VERSION_MINOR > (minor)) || \
+    (VERSION_MAJOR == (major) && VERSION_MINOR == (minor) && VERSION_PATCH > (patch)) || \
+    (VERSION_MAJOR == (major) && VERSION_MINOR == (minor) && VERSION_PATCH == (patch) && VERSION_BUILD >= (build)))
+
+#define IMAGICK_FREE_MAGICK_MEMORY(value) \
+	do { \
+		if (value) { \
+			MagickRelinquishMemory(value); \
+			value = NULL; \
+		} \
+	} while (0)
+
+#if !defined(E_DEPRECATED)
+#  define E_DEPRECATED E_STRICT
+#endif
+
+#define IMAGICK_METHOD_DEPRECATED(class_name, method_name) \
+	php_error(E_DEPRECATED, "%s::%s method is deprecated and it's use should be avoided", class_name, method_name);
+
+#define IMAGICK_METHOD_DEPRECATED_USE_INSTEAD(class_name, method_name, new_class, new_method) \
+	php_error(E_DEPRECATED, "%s::%s is deprecated. %s::%s should be used instead", class_name, method_name, new_class, new_method);
+
+
+#define IMAGICK_KERNEL_NOT_NULL_EMPTY(kernel) \
+	if (kernel->kernel_info == NULL) { \
+		zend_throw_exception(php_imagickkernel_exception_class_entry, "ImagickKernel is empty, cannot be used", (long)0 TSRMLS_CC); \
+		RETURN_THROWS(); \
+	}
+
+#define IMAGICK_NOT_EMPTY(wand) \
+	if (php_imagick_ensure_not_empty(wand->magick_wand) == 0) { \
+		RETURN_THROWS(); \
+	}
+
+#define IMAGICK_PIXEL_NOT_EMPTY(pixel) \
+	if (php_imagickpixel_ensure_not_null(pixel->pixel_wand) == 0) { \
+		RETURN_THROWS(); \
+	}
+
+
+#endif /* PHP_IMAGICK_MACROS_H */
