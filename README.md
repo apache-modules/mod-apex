@@ -94,7 +94,43 @@ Side effect: `php_sapi_name()` now reports `"apache2handler"` instead of `"embed
 ### Recommended opcache.ini tuning
 
 - `opcache.validate_timestamps=0` -- skips a per-request `fstat()` staleness check on every included file. Doesn't move throughput much on its own, but noticeably reduces socket timeouts/read errors under concurrent load in testing. Since this disables automatic pickup of edited PHP files, restart/reload Apache (or `opcache_reset()`) as part of your deploy process when using it.
+- `opcache.jit` (`tracing`, 128M buffer) is enabled by default in the packaged builds (Docker image and `php-zts-full` Debian/Fedora packages, see [Packaging](#packaging)) -- confirmed active via `opcache_get_status()` (non-zero JIT buffer size). An earlier test against a real WordPress install with a smaller buffer showed no measurable request-latency improvement (expected, since CMS page rendering is object/array/hook-heavy rather than the tight numeric loops JIT optimizes), but it's left on by default for workloads that do benefit (numerically heavy application code, Symfony/Drupal business logic with hot loops); it costs negligible fixed memory and doesn't regress the already-OPcache-dominated CMS case. Set `opcache.jit=off` in `conf.d/10-opcache.ini` if you want to rule it out as a variable.
 - Once OPcache is active, remaining latency under high concurrency is genuine CPU cost of executing application code (confirmed via `top`/`vmstat` showing full CPU saturation, not database or lock contention) -- further gains require reducing per-request PHP work (page/object caching, fewer plugins) or more CPU capacity, not additional php.ini tuning.
+
+## Packaging
+
+mod_apex ships four packaging paths, all built from the same shared script ([`packaging/build-php-zts.sh`](packaging/build-php-zts.sh)) so the PHP configure flags, OPcache/JIT settings, and extension list never drift between them:
+
+- **Docker image** ([`Dockerfile`](Dockerfile)): self-contained Apache + PHP (ZTS/embed, OPcache+JIT) + mod_apex, built entirely from source in a multi-stage build.
+
+  ```sh
+  docker build -t mod-apex .
+  docker run --rm -p 8080:80 -v "$PWD/app:/var/www/html:ro" mod-apex
+  ```
+
+- **Debian/Ubuntu**: two `.deb` packages.
+  - `php-zts-full` -- the PHP runtime itself, built by [`tools/build_php_zts_deb.sh`](tools/build_php_zts_deb.sh), which stages a build via `packaging/build-php-zts.sh` and auto-derives its runtime `Depends:` from the actual linked shared libraries (`ldd` + `dpkg -S`), so it should be run **inside a container/chroot of the actual target release** (e.g. `debian:bookworm`, `debian:trixie`, `ubuntu:jammy`, `ubuntu:noble`) rather than assumed portable across releases.
+
+    ```sh
+    ./tools/build_php_zts_deb.sh
+    sudo dpkg -i dist/php-zts-full_*.deb && sudo apt-get -f install
+    ```
+
+  - `mod-apex` -- the Apache module itself (see [Bundle mod_apex For Debian/Ubuntu Download](#bundle-mod_apex-for-debianubuntu-download) below), installed after `php-zts-full`.
+- **Fedora**: two RPMs built with [`tools/build_rpm.sh`](tools/build_rpm.sh) from [`packaging/rpm/php-zts-full.spec`](packaging/rpm/php-zts-full.spec) and [`packaging/rpm/mod_apex.spec`](packaging/rpm/mod_apex.spec). Must be run on Fedora (or a Fedora container) with `rpm-build` and the specs' `BuildRequires` installed via `dnf`, since (unlike the `.deb` path) the RPM spec relies on `rpmbuild`'s automatic ELF dependency scanner rather than a manually-derived `Depends:` list.
+
+  ```sh
+  dnf install -y rpm-build gcc make httpd-devel openssl-devel libcurl-devel \
+      zlib-devel sqlite-devel oniguruma-devel libicu-devel libzip-devel \
+      libxslt-devel freetype-devel libjpeg-turbo-devel libwebp-devel \
+      libpng-devel libsodium-devel gmp-devel ImageMagick-devel libxml2-devel
+  ./tools/build_rpm.sh
+  sudo dnf install -y dist/rpmbuild/RPMS/*/php-zts-full-*.rpm dist/rpmbuild/RPMS/*/mod_apex-*.rpm
+  ```
+
+All packaging paths install PHP to `/usr/local/php-zts` and include the same extension set: curl, mbstring, openssl, zlib, sqlite3, PDO (sqlite3/mysqli), exif, intl, zip, bcmath, soap, xsl, gd (freetype/jpeg/webp), sodium, gmp, plus the APCu, Redis, and Imagick PECL extensions -- covering the requirements of WordPress, Drupal, and Symfony.
+
+Note that `phpize`/`php-config` resolve their extension_dir/build paths from the `--prefix` compiled into `php-config`, not from any `DESTDIR` override -- so `packaging/build-php-zts.sh` always installs PHP and the PECL extensions for real to `$PREFIX` first (requiring root/write access to `/usr/local` when `$PREFIX` is the default `/usr/local/php-zts`), then stages a copy into `$DESTDIR$PREFIX` only at the end for packaging. This full install-then-stage mechanism (main PHP build + all three PECL extensions + staging copy) was validated end-to-end in this repo's dev environment using a writable, non-default `PREFIX`/`DESTDIR` (since the dev host has no passwordless root); the Fedora RPM spec parsing / build-script wiring was validated with `rpmbuild` in the same environment (a full compile wasn't run there, since the target `BuildRequires` are Fedora-only packages). A full production build against the real `/usr/local/php-zts` prefix requires running these scripts as root (e.g. in a container or CI job), which is the expected/typical way packages are built.
 
 ## Security Hardening
 

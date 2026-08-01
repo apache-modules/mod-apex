@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "$1" == "configure" ]]; then
+    if [[ -x /usr/local/php-zts/bin/php ]]; then
+        /usr/local/php-zts/bin/php -v || true
+    fi
+    echo "php-zts-full installed at /usr/local/php-zts."
+    echo "Install/upgrade mod_apex next: it loads /usr/local/php-zts/lib/libphp.so."
+fi
+
+exit 0

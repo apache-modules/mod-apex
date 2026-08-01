@@ -14,18 +14,26 @@
 #   docker run --rm -p 8080:80 -v "$PWD/app:/var/www/html:ro" mod-apex
 
 ARG PHP_VERSION=8.4.21
+ARG APCU_VERSION=5.1.24
+ARG REDIS_VERSION=6.1.0
+ARG IMAGICK_VERSION=3.8.1
 
 ########################################################################
 # Stage 1: build PHP (ZTS + embed SAPI) and mod_apex from source
 ########################################################################
 FROM debian:bookworm-slim AS builder
 ARG PHP_VERSION
+ARG APCU_VERSION
+ARG REDIS_VERSION
+ARG IMAGICK_VERSION
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Build toolchain + dev headers for the PHP extensions enabled below.
 # (mysqli/pdo_mysql use PHP's bundled mysqlnd driver -- no external MySQL
 # client dev package is needed.) autoconf/automake/libtool are required by
-# phpize when building the APCu PECL extension below.
+# phpize when building the APCu/Redis/Imagick PECL extensions. libsodium-dev/
+# libgmp-dev/libmagickwand-dev cover the sodium/gmp/imagick additions needed
+# for WordPress/Drupal/Symfony (see packaging/build-php-zts.sh).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         autoconf \
@@ -48,72 +56,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libjpeg62-turbo-dev \
         libwebp-dev \
         libpng-dev \
+        libsodium-dev \
+        libgmp-dev \
+        libmagickwand-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Fetch and extract the official PHP source tarball (already-generated
-# configure/lexer/parser files, so no autoconf/bison/re2c needed here).
-WORKDIR /usr/src
-RUN curl -fsSL "https://www.php.net/distributions/php-${PHP_VERSION}.tar.gz" -o php.tar.gz \
-    && tar xzf php.tar.gz \
-    && rm php.tar.gz
-
-# Configure flags mirror the PHP build this project was developed and
-# validated against (see README.md "Requirements" and AGENTS.md).
-WORKDIR /usr/src/php-${PHP_VERSION}
-RUN ./configure \
-        --prefix=/usr/local/php-zts \
-        --enable-zts \
-        --enable-embed \
-        --enable-opcache \
-        --enable-mbstring \
-        --with-curl \
-        --with-openssl \
-        --with-zlib \
-        --with-sqlite3 \
-        --enable-pdo \
-        --with-pdo-sqlite \
-        --with-pdo-mysql \
-        --with-mysqli \
-        --disable-cgi \
-        --disable-phpdbg \
-        --with-config-file-path=/usr/local/php-zts/etc \
-        --with-config-file-scan-dir=/usr/local/php-zts/etc/conf.d \
-        --enable-exif \
-        --enable-intl \
-        --with-zip \
-        --enable-bcmath \
-        --enable-soap \
-        --with-xsl \
-        --enable-gd \
-        --with-freetype \
-        --with-jpeg \
-        --with-webp \
-    && make -j"$(nproc)" \
-    && make install
-
-RUN mkdir -p /usr/local/php-zts/etc/conf.d \
-    && cp php.ini-production /usr/local/php-zts/etc/php.ini
-
-COPY docker/opcache.ini /usr/local/php-zts/etc/conf.d/10-opcache.ini
-
-# APCu (PECL extension, not bundled with core PHP) -- used for object/data
-# caching (see /memories/repo notes on the WordPress APCu object cache).
-ARG APCU_VERSION=5.1.24
-WORKDIR /usr/src
-RUN curl -fsSL "https://pecl.php.net/get/apcu-${APCU_VERSION}.tgz" -o apcu.tgz \
-    && tar xzf apcu.tgz \
-    && rm apcu.tgz \
-    && cd apcu-${APCU_VERSION} \
-    && /usr/local/php-zts/bin/phpize \
-    && ./configure --with-php-config=/usr/local/php-zts/bin/php-config \
-    && make -j"$(nproc)" \
-    && make install
-COPY docker/apcu.ini /usr/local/php-zts/etc/conf.d/20-apcu.ini
+# Shared build script (also used by tools/build_php_zts_deb.sh and the
+# Fedora RPM spec) so the configure flags and extension set stay in one
+# place across all packaging paths.
+WORKDIR /usr/src/mod_apex
+COPY packaging/build-php-zts.sh packaging/build-php-zts.sh
+COPY packaging/php-ini/ packaging/php-ini/
+RUN chmod +x packaging/build-php-zts.sh \
+    && PHP_VERSION="$PHP_VERSION" \
+       APCU_VERSION="$APCU_VERSION" \
+       REDIS_VERSION="$REDIS_VERSION" \
+       IMAGICK_VERSION="$IMAGICK_VERSION" \
+       ./packaging/build-php-zts.sh
 
 # Build mod_apex against the PHP ZTS/embed library just built, reusing the
 # repo's own build script so the apxs flags stay in one place (build-install.sh
 # already applies compiler/linker hardening -- see README.md#security-hardening).
-WORKDIR /usr/src/mod_apex
 COPY mod_apex.c build-install.sh ./
 RUN chmod +x build-install.sh \
     && PHP_PREFIX=/usr/local/php-zts \
@@ -149,6 +112,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libjpeg62-turbo-dev \
         libwebp-dev \
         libpng-dev \
+        libsodium-dev \
+        libgmp-dev \
+        libmagickwand-dev \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && a2dismod mpm_prefork >/dev/null 2>&1 || true \

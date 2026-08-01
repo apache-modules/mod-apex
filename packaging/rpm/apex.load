@@ -1,0 +1,4 @@
+# LoadFile line is rewritten by tools/build_rpm.sh to match the detected
+# libphp.so path (mirrors packaging/deb/apex.load's role for Debian/Ubuntu).
+LoadFile /usr/local/php-zts/lib/libphp.so
+LoadModule apex_module /usr/lib64/httpd/modules/mod_apex.so
