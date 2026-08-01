@@ -10,6 +10,10 @@ PROBE_SRC="${PROBE_SRC:-$REPO_ROOT/probes/common-app-probe.php}"
 WEB_ROOT="${WEB_ROOT:-/var/www/html}"
 PROBE_URL_PATH="/${PROBE_FILE}"
 RUN_WRK="${RUN_WRK:-0}"
+WRK_PATH="${WRK_PATH:-/test.php}"
+WRK_DURATION="${WRK_DURATION:-15s}"
+SMOKE_RPS_MIN="${SMOKE_RPS_MIN:-100}"
+SMOKE_READ_ERR_MAX="${SMOKE_READ_ERR_MAX:-0}"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -86,14 +90,55 @@ run_checks() {
     assert_contains "$out" "HAS_PATH_INFO=yes" "PATH_INFO compatibility check"
 
     if [[ "$RUN_WRK" == "1" ]]; then
-        if command -v wrk >/dev/null 2>&1; then
-            if wrk -t2 -c100 -d5s "$BASE_URL/test.php" >/tmp/apex_phase4_wrk.txt 2>&1; then
-                pass "wrk sanity run"
-            else
-                fail "wrk sanity run"
-            fi
-        else
+        if ! command -v wrk >/dev/null 2>&1; then
             fail "wrk sanity run (wrk not installed)"
+            return
+        fi
+
+        # Precheck: the target must return HTTP 200 before load means anything.
+        # Guards against benchmarking the wrong vhost/port at 47k error-pages/s.
+        local wrk_url="$BASE_URL$WRK_PATH"
+        local code
+        code="$(curl -s -o /dev/null --max-time 10 -H 'Host: app.local' -w '%{http_code}' "$wrk_url" || true)"
+        if [[ "$code" != "200" ]]; then
+            fail "wrk precheck: $wrk_url returned HTTP ${code:-none}, expected 200"
+            return
+        fi
+        pass "wrk precheck: $wrk_url returns 200"
+
+        local wrk_out=/tmp/apex_phase4_wrk.txt
+        if ! wrk -t2 -c100 -d"$WRK_DURATION" -H 'Host: app.local' "$wrk_url" >"$wrk_out" 2>&1; then
+            fail "wrk sanity run (wrk exited non-zero; see $wrk_out)"
+            return
+        fi
+
+        # Evidence checks on the wrk output itself -- exit code 0 alone proves
+        # nothing (wrk exits 0 even when 100% of responses are errors).
+        local rps non2xx read_err
+        rps="$(awk '/^Requests\/sec:/ {print $2}' "$wrk_out")"
+        non2xx="$(awk '/Non-2xx or 3xx responses:/ {print $NF}' "$wrk_out")"
+        read_err="$(awk -F'read ' '/Socket errors:/ {print $2}' "$wrk_out" | awk -F',' '{print $1}')"
+        non2xx="${non2xx:-0}"
+        read_err="${read_err:-0}"
+
+        log "wrk: rps=${rps:-0} non2xx=$non2xx read_errors=$read_err (full output: $wrk_out)"
+
+        if [[ "$non2xx" == "0" ]]; then
+            pass "wrk responses all 2xx/3xx"
+        else
+            fail "wrk responses: $non2xx non-2xx/3xx responses"
+        fi
+
+        if awk -v v="$read_err" -v max="$SMOKE_READ_ERR_MAX" 'BEGIN { exit !(v <= max) }'; then
+            pass "wrk read socket errors <= $SMOKE_READ_ERR_MAX"
+        else
+            fail "wrk read socket errors: $read_err > $SMOKE_READ_ERR_MAX"
+        fi
+
+        if [[ -n "$rps" ]] && awk -v v="$rps" -v min="$SMOKE_RPS_MIN" 'BEGIN { exit !(v >= min) }'; then
+            pass "wrk RPS >= $SMOKE_RPS_MIN"
+        else
+            fail "wrk RPS: ${rps:-0} < $SMOKE_RPS_MIN"
         fi
     fi
 }
