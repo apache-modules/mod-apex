@@ -1121,11 +1121,12 @@ static int apex_post_config(apr_pool_t *pconf, apr_pool_t *plog,
     php_embed_module.send_headers   = apex_send_headers;
     php_embed_module.register_server_variables = apex_register_server_variables;
 
-    /* Register the apache2handler-compatibility functions (apache_* +
-     * getallheaders). php_module_startup(), reached from php_embed_init() in
-     * child_init, adds these to the "standard" module's function table so
-     * they exist in every request -- consistent with the reported SAPI name. */
-    php_embed_module.additional_functions = apex_additional_functions;
+    /* NOTE: apache_* function registration happens in apex_child_init(), not
+     * here. php_embed_init() unconditionally overwrites
+     * php_embed_module.additional_functions with its own hardcoded array
+     * (just dl()) immediately before calling .startup(), so presetting the
+     * field in post_config (parent, pre-fork) is silently discarded in every
+     * child -- confirmed against sapi/embed/php_embed.c. */
 
     ap_log_error(APLOG_MARK, APLOG_WARNING, 0, s,
                  "mod_apex: expected PHP handler mapping is 'php-script' or 'application/x-httpd-php'; "
@@ -1162,6 +1163,17 @@ static void apex_child_init(apr_pool_t *pchild, server_rec *s)
 #ifdef ZEND_ENABLE_STATIC_TSRMLS_CACHE
     ZEND_TSRMLS_CACHE_UPDATE();
 #endif
+
+    /* Register the apache2handler-compatibility functions (apache_* +
+     * getallheaders) now that the engine is up. Must happen here, not via
+     * php_embed_module.additional_functions in post_config -- see the note
+     * there. zend_register_functions() is the same mechanism dl() uses to
+     * add functions after MINIT, so it's safe to call post-startup. */
+    if (zend_register_functions(NULL, apex_additional_functions, NULL,
+                                 MODULE_PERSISTENT) == FAILURE) {
+        ap_log_error(APLOG_MARK, APLOG_CRIT, 0, s,
+                     "mod_apex: failed to register apache2handler-compatibility functions");
+    }
 
     /* php_embed_init() runs php_module_startup() AND leaves an initial request
      * active (its matching php_request_shutdown() normally runs inside
