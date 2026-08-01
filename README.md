@@ -17,7 +17,7 @@ make
 sudo make install
 ```
 
-3. Build tools and headers (`apxs`, APR, APR-util, compiler toolchain).
+1. Build tools and headers (`apxs`, APR, APR-util, compiler toolchain).
 
 ## Compile And Install
 
@@ -52,9 +52,9 @@ PHP_CONFIG="$PHP_PREFIX/bin/php-config"
 PHP_INC="$($PHP_CONFIG --includes) -I$($PHP_CONFIG --include-dir)/sapi/embed"
 
 apxs -c -i -a \
-	-Wc,"$PHP_INC" \
-	-Wl,"-L$PHP_PREFIX/lib -lphp" \
-	mod_apex.c
+ -Wc,"$PHP_INC" \
+ -Wl,"-L$PHP_PREFIX/lib -lphp" \
+ mod_apex.c
 ```
 
 ## Quick Validation
@@ -226,12 +226,20 @@ ServerLimit             32
 ThreadLimit             64
 ThreadsPerChild         64
 MinSpareThreads         128
-MaxSpareThreads         256
+MaxSpareThreads         2048
 MaxRequestWorkers       2048
 MaxConnectionsPerChild  0
 ```
 
-2) Keepalive tuning (`/etc/apache2/apache2.conf`)
+`MaxSpareThreads` is set to `ServerLimit*ThreadsPerChild` (the max possible
+thread count) so idle spare threads can never exceed it and Apache never
+scale-down-kills a child process. This matters if you also run a parallel
+mod_proxy/mod_proxy_fcgi route (see "Enable FPM Path in Apache" below): a
+child killed while still holding pooled backend connections has been
+observed to crash stock Apache's `mod_proxy` (`ap_proxy_acquire_connection`
+reslist-cleanup NULL deref), unrelated to mod_apex.
+
+1) Keepalive tuning (`/etc/apache2/apache2.conf`)
 
 Locked low-error mode (current default on this host):
 
@@ -253,14 +261,14 @@ Quick Copy/Paste for project-local [httpd.conf](httpd.conf)
 
 ```apache
 <IfModule mpm_event_module>
-	StartServers 4
-	ServerLimit 32
-	ThreadLimit 64
-	ThreadsPerChild 64
-	MinSpareThreads 128
-	MaxSpareThreads 256
-	MaxRequestWorkers 2048
-	MaxConnectionsPerChild 0
+ StartServers 4
+ ServerLimit 32
+ ThreadLimit 64
+ ThreadsPerChild 64
+ MinSpareThreads 128
+ MaxSpareThreads 2048
+ MaxRequestWorkers 2048
+ MaxConnectionsPerChild 0
 </IfModule>
 
 KeepAlive Off
@@ -316,7 +324,7 @@ sudo ./tools/os_10k_tune.sh
 
 The script backs up the relevant host config, applies the file-descriptor and kernel queue limits, writes a systemd override for Apache, and restarts Apache.
 
-3) Linux OS-side limits for 10,000 connections
+1) Linux OS-side limits for 10,000 connections
 
 Apache settings alone are not enough at this scale. Raise process, socket, and file-descriptor limits on the host too.
 
@@ -353,7 +361,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart apache2
 ```
 
-4) Validate and reload
+1) Validate and reload
 
 ```bash
 sudo apachectl -t
@@ -361,7 +369,7 @@ sudo systemctl restart apache2
 systemctl is-active apache2
 ```
 
-5) Benchmark check (clean mode)
+1) Benchmark check (clean mode)
 
 ```bash
 wrk -t2 -c1000 -d15s http://127.0.0.1/test.php
@@ -438,14 +446,14 @@ sudo a2enmod proxy proxy_fcgi
 sudo systemctl enable --now php8.4-fpm
 ```
 
-2) Create the Apache FPM route config
+1) Create the Apache FPM route config
 
 ```bash
 sudo tee /etc/apache2/conf-available/apex-parallel-fpm.conf >/dev/null <<'EOF'
 Alias /fpm/ /var/www/html/
 
 <Directory /var/www/html>
-	Require all granted
+ Require all granted
 </Directory>
 
 # Keep FastCGI backend timeout explicit under load.
@@ -456,7 +464,16 @@ ProxyPassMatch "^/fpm/(.*\.php(/.*)?)$" "unix:/run/php/php8.4-fpm.sock|fcgi://lo
 EOF
 ```
 
-3) Enable config and reload Apache
+> **Known issue:** combining this proxy route with an MPM config where
+> `MaxSpareThreads` is well below `ServerLimit*ThreadsPerChild` can trigger a
+> segfault in stock Apache's `mod_proxy` (`ap_proxy_acquire_connection`,
+> `apr_reslist.c` assertion) when an idle child holding pooled FastCGI
+> connections gets scale-down-killed under load. This is an Apache/APR bug,
+> not mod_apex or php-fpm. Fix: set `MaxSpareThreads` to
+> `ServerLimit*ThreadsPerChild` as shown above so idle children are never
+> recycled mid-flight.
+
+1) Enable config and reload Apache
 
 ```bash
 sudo a2enconf apex-parallel-fpm
@@ -464,7 +481,7 @@ sudo apachectl -t
 sudo systemctl restart apache2
 ```
 
-4) Validate route and modules
+1) Validate route and modules
 
 ```bash
 sudo apachectl -M | egrep 'proxy_module|proxy_fcgi_module|apex_module'
@@ -488,18 +505,22 @@ THREADS=2 CONNECTIONS=200 DURATION=15s BASE_URL=http://127.0.0.1 ./tools/apex_fp
 ```
 
 Defaults:
+
 - `APEX_PATH=/test.php`
 - `FPM_PATH=/fpm/test.php`
 
 The script writes raw `wrk` outputs to:
+
 - `./apex_wrk_last.txt`
 - `./fpm_wrk_last.txt`
 
 Expected outcome after tuning:
+
 - Lower or no `Socket errors: read ...` on the PHP endpoint.
 - Substantially reduced read socket errors on static endpoint benchmark runs.
 
 Notes
+
 - `mod_apex` includes a threaded-MPM safety guard; keep Apache on `mpm_event` for production.
 - If read errors remain under extreme local benchmarks, investigate OS networking limits and local client-side test environment next.
 
@@ -515,10 +536,10 @@ curl -sS -u appuser:apppass 'http://127.0.0.1/common-app-probe.php?route=login'
 
 # Proxy and front-controller path check
 curl -sS \
-	-H 'X-Forwarded-Proto: https' \
-	-H 'X-Forwarded-Host: app.example.com' \
-	-H 'X-Forwarded-For: 203.0.113.5' \
-	'http://127.0.0.1/common-app-probe.php/index.php/admin/users?x=1'
+ -H 'X-Forwarded-Proto: https' \
+ -H 'X-Forwarded-Host: app.example.com' \
+ -H 'X-Forwarded-For: 203.0.113.5' \
+ 'http://127.0.0.1/common-app-probe.php/index.php/admin/users?x=1'
 ```
 
 Automated compatibility smoke (pass/fail)
