@@ -1,4 +1,8 @@
 <?php
+if (isset($_GET['status'])) {
+    http_response_code((int) $_GET['status']);
+}
+
 $keys = [
     'REQUEST_METHOD',
     'REQUEST_URI',
@@ -22,6 +26,7 @@ $keys = [
     'HTTP_X_FORWARDED_HOST',
     'HTTP_X_FORWARDED_FOR',
     'HTTP_X_REAL_IP',
+    'HTTP_X_CUSTOM_APEX',
     'REMOTE_ADDR',
     'REMOTE_PORT',
     'SERVER_ADDR',
@@ -31,6 +36,8 @@ $keys = [
 foreach ($keys as $k) {
     echo $k . '=' . ($_SERVER[$k] ?? '<missing>') . "\n";
 }
+
+echo 'RAW_BODY=' . file_get_contents('php://input') . "\n";
 
 echo "\n";
 echo "APP_COMPAT_CHECKS\n";

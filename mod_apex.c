@@ -84,6 +84,7 @@ typedef struct {
     apr_off_t    flush_failures;  /* failed flush attempts                   */
     apr_off_t    flush_skipped_aborted; /* skipped flush on aborted conn    */
     apr_off_t    last_flushed_ub_write_bytes; /* last successful flush mark   */
+    int          metrics_enabled; /* detailed TRACE1 counters/timing enabled */
 } apex_ctx_t;
 
 static int apex_connection_is_aborted(const apex_ctx_t *ctx)
@@ -154,12 +155,27 @@ static void apex_clear_php_request_info(void)
 
 static void apex_set_response_status(request_rec *r, int status_code)
 {
+    const char *status_line;
+    char *status_end;
+    long status_from_line;
+
     if (!r || status_code < 100 || status_code > 599) {
         return;
     }
 
+    status_line = ap_get_status_line(status_code);
+    status_from_line = strtol(status_line, &status_end, 10);
+
     r->status = status_code;
-    r->status_line = ap_get_status_line(status_code);
+    if (status_end == status_line || status_from_line != status_code) {
+        /* ap_get_status_line() returns "500 Internal Server Error" for an
+         * unknown code.  Do not attach that conflicting line to a valid
+         * application-defined status such as 418. */
+        r->status_line = apr_psprintf(r->pool, "%d Status %d",
+                                      status_code, status_code);
+    } else {
+        r->status_line = status_line;
+    }
 }
 
 static void apex_send_fatal_error_page(request_rec *r, const char *message)
@@ -171,7 +187,12 @@ static void apex_send_fatal_error_page(request_rec *r, const char *message)
         return;
     }
 
-    if (r->content_type || r->status >= 200 || r->status < 0) {
+    /* Content type and status only describe the intended response; Apache
+     * initializes ordinary requests to 200 before any output is written.
+     * Suppress the fallback only after response body bytes have actually
+     * entered the output filters, so it cannot be appended to partial PHP
+     * output. */
+    if (r->bytes_sent > 0 || r->sent_bodyct > 0) {
         return;
     }
 
@@ -208,10 +229,14 @@ static size_t apex_ub_write(const char *str, size_t str_length)
         return 0;
     }
 
-    ctx->ub_write_calls++;
+    if (ctx->metrics_enabled) {
+        ctx->ub_write_calls++;
+    }
 
     if (apex_connection_is_aborted(ctx)) {
-        ctx->ub_write_skipped_aborted++;
+        if (ctx->metrics_enabled) {
+            ctx->ub_write_skipped_aborted++;
+        }
         return 0;
     }
 
@@ -221,7 +246,9 @@ static size_t apex_ub_write(const char *str, size_t str_length)
         int written = ap_rwrite(str + total_written, chunk, ctx->r);
 
         if (written <= 0) {
-            ctx->ub_write_failures++;
+            if (ctx->metrics_enabled) {
+                ctx->ub_write_failures++;
+            }
             break;
         }
 
@@ -241,10 +268,14 @@ static void apex_flush(void *server_context)
 {
     apex_ctx_t *ctx = (apex_ctx_t *) server_context;
     if (ctx && ctx->r) {
-        ctx->flush_calls++;
+        if (ctx->metrics_enabled) {
+            ctx->flush_calls++;
+        }
 
         if (apex_connection_is_aborted(ctx)) {
-            ctx->flush_skipped_aborted++;
+            if (ctx->metrics_enabled) {
+                ctx->flush_skipped_aborted++;
+            }
             return;
         }
 
@@ -254,7 +285,9 @@ static void apex_flush(void *server_context)
         }
 
         if (ap_rflush(ctx->r) != APR_SUCCESS) {
-            ctx->flush_failures++;
+            if (ctx->metrics_enabled) {
+                ctx->flush_failures++;
+            }
             return;
         }
 
@@ -291,7 +324,9 @@ static size_t apex_read_post(char *buffer, size_t count_bytes)
         return 0;
     }
 
-    ctx->read_post_bytes += (apr_off_t) bytes_read;
+    if (ctx->metrics_enabled) {
+        ctx->read_post_bytes += (apr_off_t) bytes_read;
+    }
 
     return (size_t) bytes_read;
 }
@@ -421,84 +456,11 @@ static void apex_register_authorization_variables(request_rec *r, zval *track_va
         decoded[decoded_len] = '\0';
         sep = strchr(decoded, ':');
 
-        apex_register_server_variable(track_vars_array, "AUTH_TYPE", "Basic");
-
         if (sep) {
             *sep = '\0';
             apex_register_server_variable(track_vars_array, "PHP_AUTH_USER", decoded);
             apex_register_server_variable(track_vars_array, "PHP_AUTH_PW", sep + 1);
         }
-    } else if (!strncasecmp(auth, "Bearer ", 7)) {
-        apex_register_server_variable(track_vars_array, "AUTH_TYPE", "Bearer");
-    }
-}
-
-static int apex_header_name_char(char c)
-{
-    return ((c >= 'a' && c <= 'z') ||
-            (c >= 'A' && c <= 'Z') ||
-            (c >= '0' && c <= '9') ||
-            c == '-');
-}
-
-static void apex_register_http_header_variables(request_rec *r, zval *track_vars_array)
-{
-    const apr_array_header_t *hdr_arr;
-    const apr_table_entry_t *hdr_elts;
-    int i;
-
-    if (!r || !track_vars_array) {
-        return;
-    }
-
-    hdr_arr = apr_table_elts(r->headers_in);
-    hdr_elts = (const apr_table_entry_t *) hdr_arr->elts;
-
-    for (i = 0; i < hdr_arr->nelts; i++) {
-        const char *key = hdr_elts[i].key;
-        const char *val = hdr_elts[i].val;
-        char *var;
-        size_t klen;
-        size_t j;
-
-        if (!key || !*key || !val) {
-            continue;
-        }
-
-        if (!strcasecmp(key, "Content-Type") || !strcasecmp(key, "Content-Length")) {
-            continue;
-        }
-
-        klen = strlen(key);
-        var = apr_palloc(r->pool, klen + sizeof("HTTP_"));
-        if (!var) {
-            continue;
-        }
-
-        memcpy(var, "HTTP_", 5);
-        for (j = 0; j < klen; j++) {
-            char c = key[j];
-
-            if (!apex_header_name_char(c)) {
-                break;
-            }
-
-            if (c == '-') {
-                var[5 + j] = '_';
-            } else if (c >= 'a' && c <= 'z') {
-                var[5 + j] = (char) (c - ('a' - 'A'));
-            } else {
-                var[5 + j] = c;
-            }
-        }
-
-        if (j != klen) {
-            continue;
-        }
-
-        var[5 + klen] = '\0';
-
-        apex_register_server_variable(track_vars_array, var, val);
     }
 }
 
@@ -572,7 +534,6 @@ static void apex_register_server_variables(zval *track_vars_array)
      * them as trusted here: use Apache's mod_remoteip for REMOTE_ADDR
      * correctness, and validate at the application/framework layer instead. */
     apex_register_authorization_variables(r, track_vars_array);
-    apex_register_http_header_variables(r, track_vars_array);
 }
 
 /* --------------------------------------------------------------------- */
@@ -628,13 +589,20 @@ static void apex_ensure_worker_tsrm_context(void)
 
 static int apex_prepare_request_context(request_rec *r, apex_ctx_t *ctx)
 {
+    const char *content_length;
     int setup_rc;
 
     memset(ctx, 0, sizeof(*ctx));
     ctx->r = r;
     ctx->request_body_len = (r->remaining >= 0) ? r->remaining : -1;
+    ctx->metrics_enabled = APLOG_R_IS_LEVEL(r, APLOG_TRACE1);
 
-    if (r->method_number != M_POST && r->method_number != M_PUT) {
+    /* Request bodies are valid on PATCH, DELETE, and extension methods too.
+     * Apache's body API determines whether this request actually has one. */
+    content_length = apr_table_get(r->headers_in, "Content-Length");
+    if (!apr_table_get(r->headers_in, "Transfer-Encoding") &&
+        (!content_length || !strcmp(content_length, "0"))) {
+        ctx->body_eof = 1;
         return OK;
     }
 
@@ -665,6 +633,11 @@ static void apex_populate_php_request_info(request_rec *r, apex_ctx_t *ctx)
     SG(request_info).content_type    = apr_table_get(r->headers_in, "Content-Type");
     SG(request_info).content_length  = ctx->request_body_len;
     SG(request_info).proto_num       = r->proto_num;
+    /* PHP's generic sapi_activate() intentionally does not reset this field;
+     * concrete SAPIs such as FPM do so while initializing each request.
+     * The embed SAPI has no request-info callback, so reset it here to prevent
+     * an application status from leaking to the next request on this thread. */
+    SG(sapi_headers).http_response_code = HTTP_OK;
     SG(read_post_bytes)              = 0;
 }
 
@@ -706,12 +679,27 @@ static int apex_handler(request_rec *r)
     if (!r->filename || !ap_is_initial_req(r))
         return DECLINED;
 
-    /* Only execute regular files. If Apache already stat'd the target and it
-     * is a known non-regular type (e.g. a directory), return 404 rather than
-     * handing a non-file path to PHP. APR_NOFILE means "not stat'd/unknown",
-     * so leave that case to the normal execution path (preserves front-
-     * controller PATH_INFO behavior like /index.php/foo). */
-    if (r->finfo.filetype != APR_NOFILE && r->finfo.filetype != APR_REG) {
+    /* Only execute regular files. Apache normally resolves PATH_INFO to the
+     * underlying script and records APR_REG. If no stat result is available,
+     * resolve the filename here so a missing script cannot fall through
+     * php_execute_script() as a successful empty 200 response. */
+    if (r->finfo.filetype == APR_NOFILE) {
+        apr_finfo_t script_finfo;
+        apr_status_t stat_rc = apr_stat(&script_finfo, r->filename,
+                                        APR_FINFO_TYPE, r->pool);
+
+        if (APR_STATUS_IS_ENOENT(stat_rc) || APR_STATUS_IS_ENOTDIR(stat_rc)) {
+            return HTTP_NOT_FOUND;
+        }
+        if (stat_rc != APR_SUCCESS) {
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, stat_rc, r,
+                          "mod_apex: could not stat PHP script %s", r->filename);
+            return HTTP_FORBIDDEN;
+        }
+        if (script_finfo.filetype != APR_REG) {
+            return HTTP_NOT_FOUND;
+        }
+    } else if (r->finfo.filetype != APR_REG) {
         return HTTP_NOT_FOUND;
     }
 
@@ -747,14 +735,18 @@ static int apex_handler(request_rec *r)
     volatile int startup_ok = 0;
     volatile int status = SUCCESS;
 
-    startup_begin = apr_time_now();
+    if (ctx.metrics_enabled) {
+        startup_begin = apr_time_now();
+    }
     zend_first_try {
         if (php_request_startup() == FAILURE) {
             ap_log_rerror(APLOG_MARK, APLOG_CRIT, 0, r,
                           "mod_apex: php_request_startup() failed");
         } else {
             startup_ok = 1;
-            startup_end = apr_time_now();
+            if (ctx.metrics_enabled) {
+                startup_end = apr_time_now();
+            }
 
             /* Threaded MPM safety: php_execute_script() would otherwise
              * chdir() the *process* working directory to the script's dir on
@@ -765,7 +757,9 @@ static int apex_handler(request_rec *r)
             SG(options) |= SAPI_OPTION_NO_CHDIR;
 
             status = apex_execute_php_file(r->filename);
-            execute_end = apr_time_now();
+            if (ctx.metrics_enabled) {
+                execute_end = apr_time_now();
+            }
         }
     } zend_end_try();
 
@@ -795,25 +789,29 @@ static int apex_handler(request_rec *r)
         apex_clear_php_request_info();
         APEX_REQUEST_SHUTDOWN();
     } zend_end_try();
-    shutdown_end = apr_time_now();
+    if (ctx.metrics_enabled) {
+        shutdown_end = apr_time_now();
+    }
     SG(server_context) = NULL;
 
-    ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
-                  "mod_apex: timing_us startup=%" APR_TIME_T_FMT " execute=%" APR_TIME_T_FMT " shutdown=%" APR_TIME_T_FMT
-                  " read_post_bytes=%" APR_OFF_T_FMT " ub_write_bytes=%" APR_OFF_T_FMT
-                  " ub_write_calls=%" APR_OFF_T_FMT " ub_write_failures=%" APR_OFF_T_FMT " ub_write_skipped_aborted=%" APR_OFF_T_FMT
-                  " flush_calls=%" APR_OFF_T_FMT " flush_failures=%" APR_OFF_T_FMT " flush_skipped_aborted=%" APR_OFF_T_FMT,
-                  startup_end - startup_begin,
-                  execute_end - startup_end,
-                  shutdown_end - execute_end,
-                  ctx.read_post_bytes,
-                  ctx.ub_write_bytes,
-                  ctx.ub_write_calls,
-                  ctx.ub_write_failures,
-                  ctx.ub_write_skipped_aborted,
-                  ctx.flush_calls,
-                  ctx.flush_failures,
-                  ctx.flush_skipped_aborted);
+    if (ctx.metrics_enabled) {
+        ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                      "mod_apex: timing_us startup=%" APR_TIME_T_FMT " execute=%" APR_TIME_T_FMT " shutdown=%" APR_TIME_T_FMT
+                      " read_post_bytes=%" APR_OFF_T_FMT " ub_write_bytes=%" APR_OFF_T_FMT
+                      " ub_write_calls=%" APR_OFF_T_FMT " ub_write_failures=%" APR_OFF_T_FMT " ub_write_skipped_aborted=%" APR_OFF_T_FMT
+                      " flush_calls=%" APR_OFF_T_FMT " flush_failures=%" APR_OFF_T_FMT " flush_skipped_aborted=%" APR_OFF_T_FMT,
+                      startup_end - startup_begin,
+                      execute_end - startup_end,
+                      shutdown_end - execute_end,
+                      ctx.read_post_bytes,
+                      ctx.ub_write_bytes,
+                      ctx.ub_write_calls,
+                      ctx.ub_write_failures,
+                      ctx.ub_write_skipped_aborted,
+                      ctx.flush_calls,
+                      ctx.flush_failures,
+                      ctx.flush_skipped_aborted);
+    }
 
     if (status == FAILURE) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,

@@ -73,19 +73,37 @@ run_checks() {
     assert_contains "$out" "REQUEST_METHOD=POST" "POST request method"
     assert_contains "$out" "CONTENT_TYPE=application/x-www-form-urlencoded" "POST content type"
     assert_contains "$out" "CONTENT_LENGTH=3" "POST content length"
+    assert_contains "$out" "RAW_BODY=a=1" "POST raw request body"
+
+    out="$(curl -sS --max-time 10 -X PATCH -H 'Host: app.local' -H 'Content-Type: application/json' --data '{\"a\":1}' "$BASE_URL$PROBE_URL_PATH")"
+    assert_contains "$out" "REQUEST_METHOD=PATCH" "PATCH request method"
+    assert_contains "$out" 'RAW_BODY={"a":1}' "PATCH raw request body"
+
+    out="$(curl -sS --max-time 10 -X DELETE -H 'Host: app.local' --data 'delete-body' "$BASE_URL$PROBE_URL_PATH")"
+    assert_contains "$out" "REQUEST_METHOD=DELETE" "DELETE request method"
+    assert_contains "$out" "RAW_BODY=delete-body" "DELETE raw request body"
+
+    local status_code
+    status_code="$(curl -sS -o /dev/null --max-time 10 -H 'Host: app.local' -w '%{http_code}' "$BASE_URL$PROBE_URL_PATH?status=418")"
+    if [[ "$status_code" == "418" ]]; then
+        pass "nonstandard HTTP status mapping"
+    else
+        fail "nonstandard HTTP status mapping (expected 418, got ${status_code:-none})"
+    fi
 
     out="$(curl -sS --max-time 10 -u appuser:apppass -H 'Host: app.local' "$BASE_URL$PROBE_URL_PATH")"
-    assert_contains "$out" "AUTH_TYPE=Basic" "Basic auth type"
+    assert_contains "$out" "AUTH_TYPE=<missing>" "Unvalidated auth scheme is not promoted to AUTH_TYPE"
     assert_contains "$out" "PHP_AUTH_USER=appuser" "PHP_AUTH_USER mapping"
     assert_contains "$out" "PHP_AUTH_PW=apppass" "PHP_AUTH_PW mapping"
     assert_contains "$out" "HAS_AUTH_BASIC=yes" "Basic auth compatibility check"
 
-    out="$(curl -sS --max-time 10 -H 'Host: app.local' -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-Host: app.example.com' -H 'X-Forwarded-For: 203.0.113.5' -H 'X-Real-IP: 203.0.113.5' "$BASE_URL$PROBE_URL_PATH/index.php/admin/users?x=1")"
+    out="$(curl -sS --max-time 10 -H 'Host: app.local' -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-Host: app.example.com' -H 'X-Forwarded-For: 203.0.113.5' -H 'X-Real-IP: 203.0.113.5' -H 'X-Custom-Apex: retained' "$BASE_URL$PROBE_URL_PATH/index.php/admin/users?x=1")"
     assert_contains "$out" "PATH_INFO=/index.php/admin/users" "PATH_INFO mapping"
     assert_contains "$out" "HTTP_X_FORWARDED_PROTO=https" "Forwarded proto mapping"
     assert_contains "$out" "HTTP_X_FORWARDED_HOST=app.example.com" "Forwarded host mapping"
     assert_contains "$out" "HTTP_X_FORWARDED_FOR=203.0.113.5" "Forwarded for mapping"
     assert_contains "$out" "HTTP_X_REAL_IP=203.0.113.5" "X-Real-IP mapping"
+    assert_contains "$out" "HTTP_X_CUSTOM_APEX=retained" "Generic request-header mapping"
     assert_contains "$out" "HAS_PROXY_META=yes" "Proxy compatibility check"
     assert_contains "$out" "HAS_PATH_INFO=yes" "PATH_INFO compatibility check"
 
