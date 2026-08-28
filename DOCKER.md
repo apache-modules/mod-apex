@@ -4,9 +4,27 @@
 PHP Apex (`mod_apex`) in one container. You run one web container; there is
 no PHP-FPM container to configure or keep in sync.
 
-The image includes OPcache, APCu, Redis, Imagick, and the PHP extensions
-listed in the main [README](README.md). It serves PHP directly through
-Apache's event MPM.
+It serves PHP directly through Apache's event MPM and includes the extensions
+most WordPress, Drupal, Symfony, and custom PHP applications commonly need.
+
+## What's in the image
+
+- **Apache 2.4 with event MPM** for modern threaded request handling.
+- **PHP 8.4.21 ZTS** with the embed SAPI used by PHP Apex.
+- **PHP Apex (`mod_apex`)** already loaded and mapped to `.php` files.
+- **Performance tools:** OPcache with JIT support and APCu object caching.
+- **Cache and session support:** the native Redis PHP extension.
+- **Databases:** MySQL through `mysqli` and PDO MySQL, plus PDO SQLite.
+- **Application extensions:** curl, mbstring, intl, fileinfo, EXIF, BCMath,
+  GMP, sodium, SOAP, XML, SimpleXML, XMLReader, XMLWriter, XSL, and ZIP.
+- **Image handling:** GD with JPEG, PNG, WebP, and FreeType, plus Imagick.
+- **Container setup:** automatic CPU-based Apache sizing, hardened Apache
+  defaults, a static `/healthz` check, and logs sent to the container output.
+- **Base system:** a small Debian Bookworm Slim runtime containing only the
+  libraries required by Apache, PHP, and the bundled extensions.
+
+The build tools and compiler stay outside the runtime image. Apache starts as
+root so it can bind port 80, then its request workers run as `www-data`.
 
 ## Start an application
 
@@ -76,6 +94,10 @@ docker logs my-php-app
 
 Apache access and diagnostic logs go to the container log stream, so `docker
 logs` and your platform's log collector receive them automatically.
+
+The image also contains `/test.php` as a quick PHP check. Remove or replace it
+when mounting your application directory, or block it in your public routing
+if you do not mount over `/var/www/html`.
 
 ## Apache and PHP settings
 

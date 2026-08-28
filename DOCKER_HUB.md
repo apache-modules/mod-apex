@@ -10,6 +10,27 @@ request queue.
 It is a straightforward way to run modern PHP applications when you want the
 simplicity of one web container without going back to legacy prefork mod_php.
 
+## Everything included
+
+The image is ready with the web server, PHP runtime, module wiring, and common
+extensions already together:
+
+- Apache 2.4 using the event MPM
+- PHP 8.4.21 ZTS with the embed SAPI
+- PHP Apex (`mod_apex`) enabled for `.php` files
+- OPcache with JIT support and APCu
+- Redis for application caching and sessions
+- MySQL support through `mysqli` and PDO MySQL
+- SQLite through PDO SQLite
+- Imagick and GD with JPEG, PNG, WebP, and FreeType support
+- curl, mbstring, intl, fileinfo, EXIF, BCMath, GMP, sodium, SOAP, XML,
+  SimpleXML, XMLReader, XMLWriter, XSL, and ZIP
+- automatic Apache sizing based on the container CPU limit
+- hardened Apache defaults, container-friendly logs, and `/healthz`
+
+The runtime uses Debian Bookworm Slim. Compilers and build tools are not kept
+in the published runtime image.
+
 ## Start your PHP app
 
 ```bash
@@ -56,6 +77,11 @@ Check availability without invoking PHP:
 curl -fsS http://127.0.0.1:8080/healthz
 docker logs my-php-app
 ```
+
+`/healthz` is a small static check for container and load-balancer monitoring.
+The image also includes `/test.php` for a quick PHP check; mounting your app at
+`/var/www/html` replaces it. If you do not mount an application directory,
+block or remove that test page before exposing the container publicly.
 
 The image serves HTTP on port 80. Put TLS certificates and public internet
 traffic at your reverse proxy or load balancer.
