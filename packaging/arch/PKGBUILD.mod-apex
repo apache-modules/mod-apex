@@ -1,12 +1,11 @@
-# Maintained for private package releases. The PolyForm Internal Use license
-# does not permit publishing this package to the public AUR.
+# Official Arch package recipe for PHP Apex.
 pkgname=mod-apex
 pkgver=0.1.7
 pkgrel=1
 pkgdesc='Apache module that embeds a persistent PHP ZTS runtime in event-MPM workers'
 arch=('x86_64')
 url='https://github.com/apache-modules/mod-apex'
-license=('custom:PolyForm-Internal-Use-1.0.0')
+license=('Apache-2.0')
 depends=('apache' 'php-zts-full')
 makedepends=('apache' 'base-devel' 'libarchive')
 source=("${pkgname}-${pkgver}.tar.gz" 'php-zts-full.pkg.tar.zst')
@@ -46,4 +45,6 @@ package() {
         "${pkgdir}/usr/local/sbin/php-apex-mode"
     install -D -m 0644 LICENSE \
         "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+    install -D -m 0644 NOTICE \
+        "${pkgdir}/usr/share/licenses/${pkgname}/NOTICE"
 }

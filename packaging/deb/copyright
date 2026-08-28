@@ -4,8 +4,7 @@ Source: https://github.com/apache-modules/mod-apex
 
 Files: *
 Copyright: 2026 mod_apex maintainers
-License: PolyForm-Internal-Use-1.0.0
+License: Apache-2.0
 
-License: PolyForm-Internal-Use-1.0.0
- Internal use is permitted. Redistribution is not permitted.
+License: Apache-2.0
  See /usr/share/doc/mod-apex/LICENSE for the complete license text.

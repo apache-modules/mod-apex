@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build private Arch artifacts from this checkout. This is intentionally not an
-# AUR publisher: the project's current license does not permit redistribution.
+# Build Arch package artifacts from this checkout.
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
@@ -42,7 +41,8 @@ build_php_package() {
     mkdir -p "$work_dir"
     tar -C "$repo_root" -czf "$work_dir/${name}.tar.gz" \
         --transform "s,^,${name}/," \
-        LICENSE packaging/build-php-zts.sh packaging/php-ini
+        packaging/build-php-zts.sh packaging/php-ini
+    cp "$repo_root/packaging/licenses/PHP-3.01.txt" "$work_dir/"
     sed "s/^pkgver=.*/pkgver=${php_version}/" \
         "$repo_root/packaging/arch/PKGBUILD.php-zts-full" > "$work_dir/PKGBUILD"
 
@@ -64,7 +64,7 @@ build_module_package() {
     mkdir -p "$work_dir"
     tar -C "$repo_root" -czf "$work_dir/${name}.tar.gz" \
         --transform "s,^,${name}/," \
-        LICENSE mod_apex.c build-install.sh packaging/arch/10-mod_apex.conf \
+        LICENSE NOTICE mod_apex.c build-install.sh packaging/arch/10-mod_apex.conf \
         packaging/arch/mod_apex.conf tools/apache_mode.sh
     cp "$php_package" "$work_dir/php-zts-full.pkg.tar.zst"
     sed "s/^pkgver=.*/pkgver=${mod_apex_version}/" \

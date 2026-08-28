@@ -39,6 +39,7 @@ build_php_zts_full() {
     mkdir -p "$stage/$name/packaging"
     cp "$REPO_ROOT/packaging/build-php-zts.sh" "$stage/$name/packaging/"
     cp -r "$REPO_ROOT/packaging/php-ini" "$stage/$name/packaging/"
+    cp "$REPO_ROOT/packaging/licenses/PHP-3.01.txt" "$stage/$name/"
     tar -C "$stage" -czf "$TOPDIR/SOURCES/${name}.tar.gz" "$name"
     rm -rf "$stage"
     cp "$REPO_ROOT/packaging/rpm/php-zts-full.spec" "$TOPDIR/SPECS/"
@@ -55,7 +56,8 @@ build_mod_apex() {
     name="mod_apex-${MOD_APEX_VERSION}"
     stage="$(mktemp -d)"
     mkdir -p "$stage/$name/packaging/rpm" "$stage/$name/docker" "$stage/$name/tools"
-    cp "$REPO_ROOT/mod_apex.c" "$REPO_ROOT/build-install.sh" "$REPO_ROOT/LICENSE" "$stage/$name/"
+    cp "$REPO_ROOT/mod_apex.c" "$REPO_ROOT/build-install.sh" \
+        "$REPO_ROOT/LICENSE" "$REPO_ROOT/NOTICE" "$stage/$name/"
     cp "$REPO_ROOT/packaging/rpm/apex.load" "$stage/$name/packaging/rpm/"
     cp "$REPO_ROOT/docker/apex.conf" "$stage/$name/docker/"
     cp "$REPO_ROOT/tools/apache_mode.sh" "$stage/$name/tools/"

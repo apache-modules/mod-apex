@@ -104,5 +104,6 @@ and upgrade guidance.
 
 ## License
 
-PHP Apex is released under the [PolyForm Internal Use License
-1.0.0](https://polyformproject.org/licenses/internal-use/1.0.0).
+PHP Apex is released under the [Apache License
+2.0](https://github.com/apache-modules/mod-apex/blob/main/LICENSE). PHP,
+Apache HTTP Server, and bundled extensions retain their respective licenses.

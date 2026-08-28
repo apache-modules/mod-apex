@@ -72,6 +72,7 @@ JOBS="$(nproc)" \
     ./packaging/build-php-zts.sh
 
 %files
+%license PHP-3.01.txt
 %{php_prefix}
 
 %changelog

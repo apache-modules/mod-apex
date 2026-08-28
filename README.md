@@ -59,6 +59,40 @@ direct PHP execution model without giving up the event MPM. It is especially
 useful for containerized PHP applications, dedicated application servers, and
 teams that want fewer moving parts between the web server and PHP.
 
+## Measured PHP performance
+
+These local tests used an AMD Ryzen 7 PRO 6850U, Apache `event` MPM, PHP 8.4
+ZTS, OPcache, and the same small PHP script for PHP Apex and PHP-FPM. They show
+why persistent connections matter as traffic increases.
+
+With keep-alive disabled at 100 connections, both handlers delivered about the
+same throughput:
+
+| Handler | Requests per second |
+| --- | ---: |
+| PHP Apex | 9,820 |
+| PHP-FPM | 9,987 |
+
+With keep-alive enabled, PHP Apex avoided the FastCGI handoff and pulled ahead
+at every tested connection level:
+
+| Connections | PHP Apex | PHP-FPM | PHP Apex advantage |
+| ---: | ---: | ---: | ---: |
+| 100 | 38,697 req/s | 28,903 req/s | 33.9% |
+| 300 | 41,429 req/s | 27,573 req/s | 50.2% |
+| 500 | 37,985 req/s | 26,273 req/s | 44.6% |
+| 1,000 | 37,536 req/s | 24,664 req/s | 52.2% |
+
+At 300 connections, measured p99 latency was 51.74 ms for PHP Apex and
+79.55 ms for PHP-FPM. At 1,000 connections, it was 279.96 ms for PHP Apex and
+310.14 ms for PHP-FPM.
+
+These are results from one machine running a simple local workload, not a
+guarantee for every application. Database calls, application code, network
+latency, extensions, CPU limits, and memory limits all affect real-world
+results. Run your own application under representative traffic before choosing
+production capacity.
+
 ## Recommended: launch the all-in-one image
 
 Get Apache, PHP 8.4 ZTS, PHP Apex, OPcache, health checks, automatic worker
@@ -182,6 +216,15 @@ Apache should report `Syntax OK`. The module list should contain
 should report version 8.4 and `ZTS`. The final command shows the active worker
 profile.
 
+The quickest check that the installed PHP runtime is the required thread-safe
+build is:
+
+```bash
+/usr/local/php-zts/bin/php -r 'echo PHP_ZTS ? "PHP ZTS is loaded\n" : "PHP is not ZTS\n";'
+```
+
+The expected result is `PHP ZTS is loaded`.
+
 Create a PHP file in your virtual host's document root and request it through
 Apache to confirm the complete request path:
 
@@ -234,8 +277,14 @@ sudo pacman -R php-zts-full
 
 ## Map PHP files to PHP Apex
 
-Packages provide the module loader and a default PHP mapping. For a custom
-virtual host, use:
+Edit the virtual-host file for your site:
+
+- Debian/Ubuntu: `/etc/apache2/sites-available/YOUR-SITE.conf`
+- Fedora: `/etc/httpd/conf.d/YOUR-SITE.conf`
+- Arch: `/etc/httpd/conf/conf.d/YOUR-SITE.conf`
+
+Replace `YOUR-SITE` with the site name. Put this mapping inside that virtual
+host's `<VirtualHost>` block so `.php` files are handled by PHP Apex:
 
 ```apache
 <FilesMatch \.php$>
@@ -243,6 +292,37 @@ virtual host, use:
 </FilesMatch>
 
 DirectoryIndex index.php index.html
+```
+
+For example, a Debian or Ubuntu site might contain:
+
+```apache
+<VirtualHost *:80>
+    ServerName example.com
+    DocumentRoot /var/www/example/public
+
+    <FilesMatch \.php$>
+        SetHandler php-script
+    </FilesMatch>
+
+    DirectoryIndex index.php index.html
+</VirtualHost>
+```
+
+On Debian or Ubuntu, enable a newly created site before restarting Apache:
+
+```bash
+sudo a2ensite YOUR-SITE.conf
+sudo apachectl -t
+sudo systemctl restart apache2
+```
+
+On Fedora or Arch, files in the directories shown above are loaded
+automatically:
+
+```bash
+sudo httpd -t
+sudo systemctl restart httpd
 ```
 
 Confirm Apache is using PHP Apex and `event` MPM:
@@ -441,4 +521,17 @@ workers.
 
 ## License
 
-[PolyForm Internal Use License 1.0.0](https://polyformproject.org/licenses/internal-use/1.0.0)
+PHP Apex is licensed under the [Apache License 2.0](LICENSE). You may use,
+modify, and redistribute it under that license. Modified files must be clearly
+identified, and the required copyright, license, and attribution notices must
+be retained.
+
+The Apache License 2.0 does not grant permission to use the PHP Apex product
+name or branding to imply that a modified or third-party build is an official
+release or is endorsed by the PHP Apex maintainers. Descriptive references to
+the project's origin remain permitted by the license.
+
+PHP, Apache HTTP Server, and bundled extensions remain under their respective
+licenses. Binary packages and container images include software from those
+projects; review their accompanying notices when redistributing an image or
+package.

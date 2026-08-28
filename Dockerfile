@@ -121,6 +121,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # PHP ZTS/embed runtime + mod_apex module
 COPY --from=builder /usr/local/php-zts /usr/local/php-zts
 COPY --from=builder /usr/src/mod_apex/.libs/mod_apex.so /usr/lib/apache2/modules/mod_apex.so
+COPY LICENSE NOTICE /usr/share/doc/mod-apex/
+COPY packaging/licenses/PHP-3.01.txt /usr/share/doc/php-zts/
 
 # Apache module wiring: LoadFile libphp.so before LoadModule apex_module
 # (packaging/deb/apex.load is the same file used by the .deb package).
@@ -153,7 +155,8 @@ RUN printf 'ok\n' > /var/www/html/healthz \
 COPY --chmod=0755 docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint
 
 LABEL org.opencontainers.image.title="PHP Apex" \
-      org.opencontainers.image.description="Apache, PHP 8.4 ZTS, and mod_apex in one container"
+      org.opencontainers.image.description="Apache, PHP 8.4 ZTS, and mod_apex in one container" \
+      org.opencontainers.image.licenses="Apache-2.0"
 
 EXPOSE 80
 

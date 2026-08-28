@@ -1,12 +1,11 @@
-# Maintained for private package releases. The PolyForm Internal Use license
-# does not permit publishing this package to the public AUR.
+# Official Arch package recipe for the PHP ZTS runtime used by PHP Apex.
 pkgname=php-zts-full
 pkgver=8.4.21
 pkgrel=1
 pkgdesc='PHP ZTS embed runtime with OPcache, JIT, and common web extensions for PHP Apex'
 arch=('x86_64')
 url='https://github.com/apache-modules/mod-apex'
-license=('custom:PolyForm-Internal-Use-1.0.0')
+license=('PHP-3.01')
 # PHP's ZTS VM uses GCC global register variables. Arch's default LTO cannot
 # compile that code reliably; Fedora's php package makes the same exception.
 options=('!lto')
@@ -17,8 +16,8 @@ makedepends=('apache' 'autoconf' 'automake' 'base-devel' 'ca-certificates'
              'curl' 'freetype2' 'gmp' 'icu' 'imagemagick' 'libjpeg-turbo'
              'libpng' 'libsodium' 'libtool' 'libwebp' 'libxml2' 'libxslt'
              'libzip' 'oniguruma' 'openssl' 'pkgconf' 'sqlite' 'zlib')
-source=("${pkgname}-${pkgver}.tar.gz")
-sha256sums=('SKIP')
+source=("${pkgname}-${pkgver}.tar.gz" 'PHP-3.01.txt')
+sha256sums=('SKIP' 'SKIP')
 
 build() {
     cd "${srcdir}/${pkgname}-${pkgver}"
@@ -33,6 +32,6 @@ package() {
     install -d "${pkgdir}/usr/local/php-zts"
     cp -a "${srcdir}/package-root/usr/local/php-zts/." \
         "${pkgdir}/usr/local/php-zts/"
-    install -D -m 0644 "${srcdir}/${pkgname}-${pkgver}/LICENSE" \
+    install -D -m 0644 "${srcdir}/PHP-3.01.txt" \
         "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }

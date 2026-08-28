@@ -3,7 +3,7 @@ Version:        %{mod_apex_version}
 Release:        1%{?dist}
 Summary:        Apache module embedding a persistent, per-thread PHP (ZTS) runtime
 
-License:        %{?mod_apex_license}%{!?mod_apex_license:See LICENSE}
+License:        Apache-2.0
 URL:            https://github.com/apache-modules/mod-apex
 Source0:        %{name}-%{version}.tar.gz
 
@@ -45,6 +45,7 @@ install -D -m 0755 tools/apache_mode.sh \
 
 %files
 %license LICENSE
+%doc NOTICE
 /usr/lib64/httpd/modules/mod_apex.so
 %config(noreplace) /etc/httpd/conf.modules.d/10-mod_apex.conf
 %config(noreplace) /etc/httpd/conf.d/mod_apex.conf

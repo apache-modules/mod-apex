@@ -113,9 +113,8 @@ sed \
 
 install -m 0755 "$PKG_ROOT/postinst" "$PKG_DIR/DEBIAN/postinst"
 install -m 0644 "$PKG_ROOT/copyright" "$PKG_DIR/usr/share/doc/$PKG_NAME/copyright"
-if [[ -f "$REPO_ROOT/LICENSE" ]]; then
-    install -m 0644 "$REPO_ROOT/LICENSE" "$PKG_DIR/usr/share/doc/$PKG_NAME/LICENSE"
-fi
+install -m 0644 "$REPO_ROOT/packaging/licenses/PHP-3.01.txt" \
+    "$PKG_DIR/usr/share/doc/$PKG_NAME/LICENSE"
 
 DEB_PATH="$OUT_DIR/${PKG_NAME}_${VERSION}_${ARCH}.deb"
 rm -f "$DEB_PATH"

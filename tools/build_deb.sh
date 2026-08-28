@@ -134,6 +134,9 @@ install -m 0644 "$REPO_ROOT/README.md" "$PKG_DIR/usr/share/doc/$PKG_NAME/README.
 if [[ -f "$REPO_ROOT/LICENSE" ]]; then
     install -m 0644 "$REPO_ROOT/LICENSE" "$PKG_DIR/usr/share/doc/$PKG_NAME/LICENSE"
 fi
+if [[ -f "$REPO_ROOT/NOTICE" ]]; then
+    install -m 0644 "$REPO_ROOT/NOTICE" "$PKG_DIR/usr/share/doc/$PKG_NAME/NOTICE"
+fi
 if [[ -f "$PKG_ROOT/copyright" ]]; then
     install -m 0644 "$PKG_ROOT/copyright" "$PKG_DIR/usr/share/doc/$PKG_NAME/copyright"
 fi
