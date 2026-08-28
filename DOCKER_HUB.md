@@ -1,14 +1,15 @@
 # PHP Apex for Apache
 
-**Run PHP inside Apache. Skip FastCGI. Keep the event MPM.**
+**One container. One request path. PHP ready inside Apache.**
 
 `practicalwebuser/mod_apex-apache:php8.4` puts Apache, PHP 8.4 ZTS, and PHP
 Apex in one ready-to-run image. PHP executes directly in Apache's worker
 threads, so you avoid a separate PHP-FPM container, FastCGI socket, and second
 request queue.
 
-It is a straightforward way to run modern PHP applications when you want the
-simplicity of one web container without going back to legacy prefork mod_php.
+Run modern PHP applications with one web service and no separate PHP-FPM
+process pool. Keep Apache's event MPM without going back to legacy prefork
+mod_php.
 
 ## Everything included
 
@@ -97,7 +98,7 @@ digest in your deployment configuration.
 
 ## Need more setup detail?
 
-See the [Docker guide](https://github.com/practicalwebuser/mod_apex/blob/main/DOCKER.md)
+See the [Docker guide](https://github.com/apache-modules/mod-apex/blob/main/DOCKER.md)
 for writable application directories, custom Apache/PHP settings, proxy setup,
 and upgrade guidance.
 

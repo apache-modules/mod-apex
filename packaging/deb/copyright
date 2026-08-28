@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: mod_apex
-Source: https://github.com/example/mod_apex
+Source: https://github.com/apache-modules/mod-apex
 
 Files: *
 Copyright: 2026 mod_apex maintainers

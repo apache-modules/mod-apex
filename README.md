@@ -1,26 +1,69 @@
 # PHP Apex for Apache
 
-Run PHP directly inside Apache with the modern `event` MPM. PHP Apex removes
-the PHP-FPM proxy hop and keeps a PHP ZTS runtime ready in every Apache worker
-thread.
+**One web server. One request path. PHP ready inside Apache.**
 
-PHP Apex is available as one ready-to-run Docker image or as matching server
-packages for Debian, Ubuntu, Fedora, and Arch Linux.
+PHP Apex runs PHP directly in Apache's modern `event` MPM workers. It removes
+the PHP-FPM proxy layer, FastCGI socket, separate process pool, and second
+request queue—without sending Apache back to the legacy prefork model used by
+traditional mod_php.
+
+Choose the ready-to-run Docker image or install matching packages on Debian,
+Ubuntu, Fedora, or Arch Linux.
+
+```bash
+docker pull practicalwebuser/mod_apex-apache:php8.4
+```
+
+## Stop running two systems to serve one PHP request
+
+A typical Apache and PHP-FPM stack asks you to operate two services. Apache
+accepts the request, forwards it through FastCGI, and waits for a separate PHP
+worker pool. That means two sets of workers, two places to tune capacity, and
+another boundary to monitor.
+
+PHP Apex gives Apache a thread-safe PHP runtime of its own. Apache receives the
+request and executes the PHP file in the same worker thread. Your application
+still gets PHP 8.4, OPcache, popular extensions, Apache configuration, virtual
+hosts, access control, and the event MPM—through a shorter, simpler path.
 
 ## Why PHP Apex
 
-- One direct path from Apache to PHP—no FastCGI socket or second service.
-- Apache `event` MPM for modern connection handling.
-- OPcache and JIT enabled with the supported `apache2handler` SAPI identity.
-- APCu, Redis, Imagick, mbstring, intl, zip, bcmath, SOAP, GD, sodium, GMP,
-  curl, OpenSSL, SQLite, MySQL PDO, exif, and XSL included.
-- CPU-aware server settings through the packaged `php-apex-mode` command.
-- Docker, Debian/Ubuntu, Fedora, and Arch delivery options.
+- **Operate less infrastructure.** No PHP-FPM service, FastCGI socket, or
+  separate PHP worker pool to deploy and keep in sync.
+- **Keep modern Apache.** PHP Apex is built for the threaded `event` MPM, not
+  the connection-heavy prefork model required by legacy mod_php.
+- **Keep PHP ready.** Every Apache worker thread owns a persistent PHP ZTS
+  runtime for incoming PHP requests.
+- **Start with the extensions applications expect.** OPcache, JIT, APCu,
+  Redis, Imagick, MySQL, SQLite, GD, intl, mbstring, ZIP, sodium, SOAP, and
+  more are included in the full runtime.
+- **Size the server in one command.** `php-apex-mode steady` reads the CPU
+  count, writes the Apache worker settings, checks the configuration, and
+  restarts the correct service.
+- **Deploy your way.** Use the all-in-one Docker image or native packages for
+  Debian, Ubuntu, Fedora, and Arch Linux.
 
-## First option: run the Docker Hub image
+## PHP Apex compared with the usual choices
 
-Docker is the quickest way to run PHP Apex because Apache, PHP 8.4 ZTS, PHP
-Apex, OPcache, and the included extensions arrive together.
+| | PHP Apex | PHP-FPM | Legacy mod_php |
+| --- | --- | --- | --- |
+| Request path | Apache runs PHP directly | Apache proxies to FastCGI | Apache runs PHP directly |
+| Apache MPM | `event` | `event` | Usually `prefork` |
+| PHP runtime | Thread-safe PHP ZTS | Separate PHP processes | PHP inside Apache processes |
+| Services to operate | One web service | Apache plus PHP-FPM | One web service |
+| Worker tuning | CPU-aware helper included | Tune Apache and FPM pools | Tune prefork Apache |
+| Ready-to-run container | Apache, PHP, and PHP Apex together | Commonly split or supervised | Available, but tied to prefork |
+
+PHP Apex is a strong fit when Apache is part of your platform and you want a
+direct PHP execution model without giving up the event MPM. It is especially
+useful for containerized PHP applications, dedicated application servers, and
+teams that want fewer moving parts between the web server and PHP.
+
+## Recommended: launch the all-in-one image
+
+Get Apache, PHP 8.4 ZTS, PHP Apex, OPcache, health checks, automatic worker
+sizing, and the full extension set in one image. Bring your application and
+set the container limits; the request stack is already assembled.
 
 ```bash
 docker pull practicalwebuser/mod_apex-apache:php8.4
@@ -60,54 +103,133 @@ PHP 8.4 ZTS and the complete extension set. The `mod-apex` package contains
 the Apache module and the `php-apex-mode` server configuration command.
 
 The examples below download 64-bit Intel/AMD (`x86_64`/`amd64`) packages
-straight from the latest GitHub release.
+straight from the latest GitHub release. Run these commands as a user with
+`sudo` access. If Apache already sends `.php` files to mod_php or PHP-FPM,
+disable that PHP handler before enabling PHP Apex.
 
-### Debian or Ubuntu
+Create a clean download directory first:
 
 ```bash
 mkdir -p php-apex-install
 cd php-apex-install
+curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/SHA256SUMS
+```
+
+### Debian or Ubuntu
+
+```bash
 curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/php-zts-full_8.4.21-1_amd64.deb
 curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/mod-apex_0.1.7_amd64.deb
+sha256sum --ignore-missing -c SHA256SUMS
 sudo apt install ./php-zts-full_8.4.21-1_amd64.deb ./mod-apex_0.1.7_amd64.deb
 ```
 
-Switch Apache to the threaded `event` MPM and enable PHP Apex:
+Switch Apache to the threaded `event` MPM, enable PHP Apex, and apply the
+recommended CPU-sized settings:
 
 ```bash
-sudo a2dismod php8.4 mpm_prefork 2>/dev/null || true
+sudo a2dismod php8.4 2>/dev/null || true
+sudo a2disconf php8.4-fpm 2>/dev/null || true
+sudo a2dismod mpm_prefork 2>/dev/null || true
 sudo a2enmod mpm_event apex
 sudo apachectl -t
 sudo systemctl restart apache2
+sudo php-apex-mode steady
 ```
 
 ### Fedora
 
 ```bash
-mkdir -p php-apex-install
-cd php-apex-install
 curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/php-zts-full-8.4.21-1.fc44.x86_64.rpm
 curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/mod_apex-0.1.7-1.fc44.x86_64.rpm
+sha256sum --ignore-missing -c SHA256SUMS
 sudo dnf install ./php-zts-full-8.4.21-1.fc44.x86_64.rpm ./mod_apex-0.1.7-1.fc44.x86_64.rpm
 sudo httpd -t
-sudo systemctl restart httpd
+sudo systemctl enable httpd
+sudo php-apex-mode steady
 ```
 
 ### Arch Linux
 
 ```bash
-mkdir -p php-apex-install
-cd php-apex-install
 curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/php-zts-full-8.4.21-1-x86_64.pkg.tar.zst
 curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/mod-apex-0.1.7-1-x86_64.pkg.tar.zst
+sha256sum --ignore-missing -c SHA256SUMS
 sudo pacman -U ./php-zts-full-8.4.21-1-x86_64.pkg.tar.zst ./mod-apex-0.1.7-1-x86_64.pkg.tar.zst
 ```
 
-Then apply the configuration:
+Enable Apache at boot and apply the recommended CPU-sized settings:
 
 ```bash
 sudo httpd -t
-sudo systemctl restart httpd
+sudo systemctl enable httpd
+sudo php-apex-mode steady
+```
+
+### Verify the server installation
+
+Use the same checks on Debian, Ubuntu, Fedora, or Arch:
+
+```bash
+sudo apachectl -t
+sudo apachectl -M | grep -E 'apex_module|mpm_event_module|php_module'
+/usr/local/php-zts/bin/php -r 'echo PHP_VERSION, " ", PHP_ZTS ? "ZTS\n" : "NTS\n";'
+php-apex-mode status
+```
+
+Apache should report `Syntax OK`. The module list should contain
+`apex_module` and `mpm_event_module`, but not the legacy `php_module`. PHP
+should report version 8.4 and `ZTS`. The final command shows the active worker
+profile.
+
+Create a PHP file in your virtual host's document root and request it through
+Apache to confirm the complete request path:
+
+```php
+<?php
+echo "PHP Apex is running\n";
+```
+
+Remove that check file after verification.
+
+### Upgrade PHP Apex
+
+Download the new matching `php-zts-full` and `mod-apex` files from the same
+release, verify them with that release's `SHA256SUMS`, and install both files
+together using the same `apt`, `dnf`, or `pacman -U` command shown above.
+Never mix the PHP runtime from one release with the module from another.
+
+After an upgrade, reapply and verify the profile:
+
+```bash
+sudo php-apex-mode steady
+sudo apachectl -t
+```
+
+### Remove PHP Apex
+
+Remove the Apache module first. Remove `php-zts-full` too only when no other
+installed software uses that runtime.
+
+Debian or Ubuntu:
+
+```bash
+sudo apt remove mod-apex
+sudo apt remove php-zts-full
+```
+
+Fedora:
+
+```bash
+sudo dnf remove mod_apex
+sudo dnf remove php-zts-full
+```
+
+Arch Linux:
+
+```bash
+sudo pacman -R mod-apex
+sudo pacman -R php-zts-full
 ```
 
 ## Map PHP files to PHP Apex
@@ -304,6 +426,18 @@ the distribution’s Apache module directory.
 - The matching `php-zts-full` and `mod-apex` package pair.
 - A PHP application whose third-party extensions are safe for PHP ZTS.
 - Enough memory for the configured number of active PHP requests.
+
+## Put PHP on the shortest path through Apache
+
+Start with the all-in-one image:
+
+```bash
+docker pull practicalwebuser/mod_apex-apache:php8.4
+```
+
+Prefer a native server installation? Use the matching packages above, run
+`php-apex-mode steady`, and let Apache serve PHP directly through its event
+workers.
 
 ## License
 

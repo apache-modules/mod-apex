@@ -5,7 +5,7 @@ pkgver=8.4.21
 pkgrel=1
 pkgdesc='PHP ZTS embed runtime with OPcache, JIT, and common web extensions for PHP Apex'
 arch=('x86_64')
-url='https://github.com/practicalwebuser/mod_apex'
+url='https://github.com/apache-modules/mod-apex'
 license=('custom:PolyForm-Internal-Use-1.0.0')
 # PHP's ZTS VM uses GCC global register variables. Arch's default LTO cannot
 # compile that code reliably; Fedora's php package makes the same exception.

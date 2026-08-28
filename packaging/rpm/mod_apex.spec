@@ -4,7 +4,7 @@ Release:        1%{?dist}
 Summary:        Apache module embedding a persistent, per-thread PHP (ZTS) runtime
 
 License:        %{?mod_apex_license}%{!?mod_apex_license:See LICENSE}
-URL:            https://example.com/mod_apex
+URL:            https://github.com/apache-modules/mod-apex
 Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  gcc, make, httpd-devel
