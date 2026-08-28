@@ -344,23 +344,6 @@ sudo apachectl -t
 This is a clean route from web request to PHP: no FastCGI socket, no second
 PHP service, and no extra request queue to manage.
 
-### 1,000-connection example
-
-On the local benchmark machine, mod_apex served the same PHP page with these
-results.
-
-| `wrk` threads | Requests/second |
-| ---: | ---: |
-| 2 | 37,552 |
-| 4 | 37,536 |
-| 8 | 35,782 |
-| 16 | 32,091 |
-
-The sweet spot here was 8 `wrk` threads: **35,782 requests per second** at
-1,000 connections. Your best number will depend on your CPU, network, PHP
-code, and load-generator machine. Start with 8 client threads for a
-1,000-connection local test, then test your own app.
-
 ### OPcache
 
 Production starting point:
