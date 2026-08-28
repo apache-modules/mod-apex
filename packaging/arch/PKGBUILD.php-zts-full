@@ -33,6 +33,6 @@ package() {
     install -d "${pkgdir}/usr/local/php-zts"
     cp -a "${srcdir}/package-root/usr/local/php-zts/." \
         "${pkgdir}/usr/local/php-zts/"
-    install -D -m 0644 LICENSE \
+    install -D -m 0644 "${srcdir}/${pkgname}-${pkgver}/LICENSE" \
         "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }

@@ -39,9 +39,11 @@ package() {
     install -D -m 0755 .libs/mod_apex.so \
         "${pkgdir}/usr/lib/httpd/modules/mod_apex.so"
     install -D -m 0644 packaging/arch/10-mod_apex.conf \
-        "${pkgdir}/etc/httpd/conf.modules.d/10-mod_apex.conf"
+        "${pkgdir}/etc/httpd/conf/conf.d/10-mod_apex.conf"
     install -D -m 0644 packaging/arch/mod_apex.conf \
-        "${pkgdir}/etc/httpd/conf/extra/mod_apex.conf"
+        "${pkgdir}/etc/httpd/conf/conf.d/mod_apex.conf"
+    install -D -m 0755 tools/apache_mode.sh \
+        "${pkgdir}/usr/local/sbin/php-apex-mode"
     install -D -m 0644 LICENSE \
         "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }

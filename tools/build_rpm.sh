@@ -54,10 +54,11 @@ build_mod_apex() {
     local stage name
     name="mod_apex-${MOD_APEX_VERSION}"
     stage="$(mktemp -d)"
-    mkdir -p "$stage/$name/packaging/rpm" "$stage/$name/docker"
+    mkdir -p "$stage/$name/packaging/rpm" "$stage/$name/docker" "$stage/$name/tools"
     cp "$REPO_ROOT/mod_apex.c" "$REPO_ROOT/build-install.sh" "$REPO_ROOT/LICENSE" "$stage/$name/"
     cp "$REPO_ROOT/packaging/rpm/apex.load" "$stage/$name/packaging/rpm/"
     cp "$REPO_ROOT/docker/apex.conf" "$stage/$name/docker/"
+    cp "$REPO_ROOT/tools/apache_mode.sh" "$stage/$name/tools/"
     tar -C "$stage" -czf "$TOPDIR/SOURCES/${name}.tar.gz" "$name"
     rm -rf "$stage"
     cp "$REPO_ROOT/packaging/rpm/mod_apex.spec" "$TOPDIR/SPECS/"

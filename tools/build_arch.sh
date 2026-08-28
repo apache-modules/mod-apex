@@ -52,6 +52,7 @@ build_php_package() {
     )
 
     find "$work_dir" -maxdepth 1 -type f -name 'php-zts-full-*.pkg.tar.zst' \
+        ! -name '*-debug-*.pkg.tar.zst' \
         -print -quit
 }
 
@@ -64,7 +65,7 @@ build_module_package() {
     tar -C "$repo_root" -czf "$work_dir/${name}.tar.gz" \
         --transform "s,^,${name}/," \
         LICENSE mod_apex.c build-install.sh packaging/arch/10-mod_apex.conf \
-        packaging/arch/mod_apex.conf
+        packaging/arch/mod_apex.conf tools/apache_mode.sh
     cp "$php_package" "$work_dir/php-zts-full.pkg.tar.zst"
     sed "s/^pkgver=.*/pkgver=${mod_apex_version}/" \
         "$repo_root/packaging/arch/PKGBUILD.mod-apex" > "$work_dir/PKGBUILD"
@@ -75,6 +76,7 @@ build_module_package() {
     )
 
     find "$work_dir" -maxdepth 1 -type f -name 'mod-apex-*.pkg.tar.zst' \
+        ! -name '*-debug-*.pkg.tar.zst' \
         -print -quit
 }
 

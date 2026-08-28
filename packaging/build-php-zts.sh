@@ -158,7 +158,8 @@ cd "php-${PHP_VERSION}"
 
 make -j"$JOBS"
 if [[ -n "$PACKAGE_BUILD_ROOT" ]]; then
-    make install DESTDIR="$PACKAGE_BUILD_ROOT"
+    # PHP's generated Makefile stages with INSTALL_ROOT, not DESTDIR.
+    make install INSTALL_ROOT="$PACKAGE_BUILD_ROOT"
 else
     make install
 fi

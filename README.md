@@ -1,111 +1,68 @@
-# PHP Apex
+# PHP Apex for Apache
 
-**Run PHP inside Apache. Skip FastCGI. Keep the event MPM.**
+Run PHP directly inside Apache with the modern `event` MPM. PHP Apex removes
+the PHP-FPM proxy hop and keeps a PHP ZTS runtime ready in every Apache worker
+thread.
 
-PHP Apex is powered by `mod_apex`, an Apache module that embeds a persistent
-PHP ZTS runtime in each Apache worker thread.
-Apache accepts the request and runs PHP in the same thread. There is no
-FastCGI socket, no separate FPM queue, and no legacy prefork requirement.
-
-```text
-PHP-FPM: client -> Apache -> FastCGI proxy -> FPM worker -> PHP
-mod_apex: client -> Apache worker -> PHP
-```
-
-Try it without changing your server:
-
-```bash
-docker pull practicalwebuser/mod_apex-apache:php8.4
-docker run --rm -d --name mod-apex-demo -p 8080:80 practicalwebuser/mod_apex-apache:php8.4
-curl -sS http://127.0.0.1:8080/test.php
-docker stop mod-apex-demo
-```
-
-Expected output:
-
-```text
-OK
-sapi=apache2handler
-```
+PHP Apex is available as one ready-to-run Docker image or as matching server
+packages for Debian, Ubuntu, Fedora, and Arch Linux.
 
 ## Why PHP Apex
 
-- **More direct than PHP-FPM.** PHP runs in the Apache request thread. No
-  FastCGI proxy hop. No second request queue.
-- **Modern replacement for mod_php.** PHP ZTS runs with Apache's threaded
-  `event` MPM. Legacy mod_php normally forces `prefork`.
-- **Lower latency under load.** Removing the FPM boundary reduces queueing
-  and keeps tail latency tighter as concurrency rises.
-- **Fewer services to operate.** No FPM pool to size, monitor, or restart.
-- **Working OPcache and JIT.** mod_apex uses the `apache2handler` SAPI name
-  so PHP's OPcache allowlist accepts the embedded runtime.
+- One direct path from Apache to PHP—no FastCGI socket or second service.
+- Apache `event` MPM for modern connection handling.
+- OPcache and JIT enabled with the supported `apache2handler` SAPI identity.
+- APCu, Redis, Imagick, mbstring, intl, zip, bcmath, SOAP, GD, sodium, GMP,
+  curl, OpenSSL, SQLite, MySQL PDO, exif, and XSL included.
+- CPU-aware server settings through the packaged `php-apex-mode` command.
+- Docker, Debian/Ubuntu, Fedora, and Arch delivery options.
 
-### Measured against PHP-FPM
+## First option: run the Docker Hub image
 
-Local test: 16-thread AMD Ryzen 7 PRO 6850U, Apache event MPM, PHP 8.4 ZTS,
-OPcache enabled, keep-alive enabled, identical PHP scripts.
+Docker is the quickest way to run PHP Apex because Apache, PHP 8.4 ZTS, PHP
+Apex, OPcache, and the included extensions arrive together.
 
-| Connections | mod_apex | PHP-FPM | mod_apex result |
-| ---: | ---: | ---: | ---: |
-| 100 | 38,697 req/s | 28,903 req/s | 33.9% more req/s |
-| 300 | 41,429 req/s | 27,573 req/s | 50.2% more req/s |
-| 500 | 37,985 req/s | 26,273 req/s | 44.6% more req/s |
-| 1,000 | 37,536 req/s | 24,664 req/s | 52.2% more req/s |
+```bash
+docker pull practicalwebuser/mod_apex-apache:php8.4
+docker run -d \
+  --name php-apex \
+  --restart unless-stopped \
+  -p 8080:80 \
+  -v "$PWD/public:/var/www/html:ro" \
+  practicalwebuser/mod_apex-apache:php8.4
+```
 
-At 300 connections, p99 latency was 51.74 ms for mod_apex and 79.55 ms for
-FPM. At 1,000 connections, p99 was 279.96 ms for mod_apex and 310.14 ms for
-FPM. Results depend on workload and hardware. Test your application. The
-repeatable design advantage is the missing proxy and pool hop, not a promise
-that every application gains 50% throughput.
+Open `http://SERVER-IP:8080` in a browser. Put your PHP application in the
+local `public` folder or replace the volume path with your application’s
+document root.
 
-### Pick the right runtime
+For production, set CPU and memory limits outside the image:
 
-| Option | Request path | Apache MPM | Best reason to use it | Tradeoff |
-| --- | --- | --- | --- | --- |
-| mod_apex | Apache thread runs PHP | `event` | Direct path, low latency, one service | Requires PHP ZTS and thread-safe extensions |
-| PHP-FPM | Apache proxies to FPM | `event` | Process isolation and independent pool scaling | Proxy hop, second queue, second service |
-| mod_php | Apache process runs PHP | Usually `prefork` | Familiar legacy setup | Older concurrency model and higher process memory |
+```bash
+docker run -d \
+  --name php-apex \
+  --restart unless-stopped \
+  --cpus=4 \
+  --memory=2g \
+  -p 8080:80 \
+  -v /srv/my-app/public:/var/www/html:ro \
+  practicalwebuser/mod_apex-apache:php8.4
+```
 
-Choose mod_apex when you control the PHP build, need Apache, and want the
-shortest request path. Choose FPM when process isolation matters more than
-latency. Never load non-thread-safe PHP or extensions into mod_apex.
+The image reads its available CPU count and chooses matching Apache worker
+settings when it starts. See [DOCKER.md](DOCKER.md) for application volumes,
+PHP settings, Apache settings, logs, health checks, and reverse-proxy setup.
 
-## Features
+## Install PHP Apex directly on a server
 
-- PHP stays ready inside Apache, so each request avoids a separate PHP service.
-- OPcache + JIT enabled and working (packaged builds ship JIT on by default:
-  `tracing` mode, 128M buffer).
-- Broad bundled extension set: APCu, Redis, Imagick, mbstring,
-  intl, zip, bcmath, soap, GD, sodium, gmp, curl, openssl, zlib, sqlite3,
-  PDO (sqlite3/mysqli), exif, and xsl. Verify every application's third-party
-  extensions are ZTS-safe before deployment.
-- Ships as a Docker image, Debian/Ubuntu `.deb` pair, Fedora RPM pair, or
-  Arch Linux package pair.
+Install the two matching files together. The `php-zts-full` package contains
+PHP 8.4 ZTS and the complete extension set. The `mod-apex` package contains
+the Apache module and the `php-apex-mode` server configuration command.
 
-## Requirements
+The examples below download 64-bit Intel/AMD (`x86_64`/`amd64`) packages
+straight from the latest GitHub release.
 
-- Apache 2.4 with the threaded `event` MPM.
-- The matching `php-zts-full` package supplied with PHP Apex.
-- Enough memory for your PHP application and its active requests.
-
-## License
-
-[PolyForm Internal Use License 1.0.0](https://polyformproject.org/licenses/internal-use/1.0.0)
--- free to use and modify internally, redistribution not permitted -- see
-[LICENSE](LICENSE).
-
-## Install PHP Apex on your server
-
-Download the two matching package files from the PHP Apex GitHub release.
-One file provides PHP ZTS and its complete extension set; the other provides
-the Apache module. Install both together. You do not need to compile PHP or C
-code on the server.
-
-### Debian or Ubuntu (recommended)
-
-Run these commands on your server. They create a small download folder, fetch
-the latest Debian packages directly from GitHub Releases, and install both
-files together. These files are for 64-bit Intel/AMD servers (`amd64`):
+### Debian or Ubuntu
 
 ```bash
 mkdir -p php-apex-install
@@ -115,241 +72,169 @@ curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/mo
 sudo apt install ./php-zts-full_8.4.21-1_amd64.deb ./mod-apex_0.1.7_amd64.deb
 ```
 
-`curl -fLO` stops immediately if GitHub cannot provide a file. Do not replace
-these packages with the distribution's regular PHP package: PHP Apex needs the
-included ZTS PHP runtime.
-
-If you already downloaded the files, put both in the same folder and run:
+Switch Apache to the threaded `event` MPM and enable PHP Apex:
 
 ```bash
-sudo apt install ./php-zts-full_*.deb ./mod-apex_*.deb
+sudo a2dismod php8.4 mpm_prefork 2>/dev/null || true
+sudo a2enmod mpm_event apex
+sudo apachectl -t
+sudo systemctl restart apache2
 ```
 
 ### Fedora
 
-Copy the matching RPM files to the server, then run:
-
 ```bash
-sudo dnf install ./php-zts-full-*.rpm ./mod_apex-*.rpm
+mkdir -p php-apex-install
+cd php-apex-install
+curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/php-zts-full-8.4.21-1.fc44.x86_64.rpm
+curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/mod_apex-0.1.7-1.fc44.x86_64.rpm
+sudo dnf install ./php-zts-full-8.4.21-1.fc44.x86_64.rpm ./mod_apex-0.1.7-1.fc44.x86_64.rpm
+sudo httpd -t
+sudo systemctl restart httpd
 ```
 
 ### Arch Linux
 
-Copy the matching package files to the server, then run:
+```bash
+mkdir -p php-apex-install
+cd php-apex-install
+curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/php-zts-full-8.4.21-1-x86_64.pkg.tar.zst
+curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/mod-apex-0.1.7-1-x86_64.pkg.tar.zst
+sudo pacman -U ./php-zts-full-8.4.21-1-x86_64.pkg.tar.zst ./mod-apex-0.1.7-1-x86_64.pkg.tar.zst
+```
+
+Then apply the configuration:
 
 ```bash
-sudo pacman -U ./php-zts-full-*.pkg.tar.zst ./mod-apex-*.pkg.tar.zst
+sudo httpd -t
+sudo systemctl restart httpd
 ```
 
-Arch calls Apache `httpd` rather than `apache2`. Use `httpd` in the service
-commands below. After installation, include
-`/etc/httpd/conf/extra/mod_apex.conf` from your Apache configuration.
+## Map PHP files to PHP Apex
 
-### Use the Docker Hub image
-
-Want to try PHP Apex before changing a server? Pull and run the published
-image:
-
-```bash
-docker pull practicalwebuser/mod_apex-apache:php8.4
-docker run --rm -d --name mod-apex-demo -p 8080:80 practicalwebuser/mod_apex-apache:php8.4
-curl -sS http://127.0.0.1:8080/test.php
-docker stop mod-apex-demo
-```
-
-Use `podman` instead of `docker` if that is what your server uses.
-For application mounts, resource limits, reverse-proxy setup, and tuning,
-read [DOCKER.md](DOCKER.md).
-
-## Set up Apache
-
-### 1. Make Apache use PHP Apex for PHP
-
-On Debian or Ubuntu, turn off the old PHP handler and turn on Apache's modern
-request mode. Run these again only if another package has turned the old
-handler back on:
-
-```bash
-sudo a2dismod php8.4 || true          # match your installed PHP version
-sudo a2disconf php8.4-fpm || true
-sudo a2dismod mpm_prefork || true
-sudo a2enmod mpm_event
-sudo systemctl disable --now php8.4-fpm || true
-```
-
-Fedora loads the supplied PHP Apex configuration from `/etc/httpd/conf.d/`.
-On Arch, add this line to Apache's `/etc/httpd/conf/httpd.conf` once:
-
-```apache
-Include conf/extra/mod_apex.conf
-```
-
-Verify only mod_apex is serving PHP afterward:
-
-```bash
-sudo apachectl -M | grep -E 'apex_module|mpm_event_module|php_module'
-# expect: apex_module and mpm_event_module present, php_module absent
-```
-
-### 2. Map PHP requests
-
-Add this to the vhost or an enabled Apache configuration file:
+Packages provide the module loader and a default PHP mapping. For a custom
+virtual host, use:
 
 ```apache
 <FilesMatch \.php$>
     SetHandler php-script
 </FilesMatch>
 
+DirectoryIndex index.php index.html
 ```
 
-### 3. Validate, restart, test
-
-These commands use Debian/Ubuntu names and the default document root. On
-Fedora or Arch, substitute `httpd` for `apache2`/`apachectl`. Adjust
-`/var/www/html` if your vhost uses another document root.
+Confirm Apache is using PHP Apex and `event` MPM:
 
 ```bash
-sudo apachectl -t
-sudo systemctl restart apache2
 sudo apachectl -M | grep -E 'apex_module|mpm_event_module|php_module'
-sudo install -m 0644 test.php /var/www/html/apex-smoke.php
-curl -sS http://127.0.0.1/apex-smoke.php
-sudo rm /var/www/html/apex-smoke.php
 ```
 
-Expected modules: `apex_module` and `mpm_event_module`. `php_module` must not
-be loaded. Expected request output:
+You should see `apex_module` and `mpm_event_module`. The legacy `php_module`
+should not be loaded.
 
-```text
-OK
-sapi=apache2handler
-```
+## Configure the server for the best performance
 
-## Settings and performance modes
+### Steady profile—recommended for real sites
 
-Do not copy giant numbers from the internet. Start with the steady profile,
-then check that your site stays fast and has enough memory.
-
-### Throughput mode
-
-Persistent connections provide maximum requests per second in this test.
-
-The included profile is a stress-test preset, not a universal production
-default. It allows 10,048 Apache workers and can reserve substantial memory
-because every worker thread can execute PHP. Use it only on a host sized for
-that concurrency; otherwise copy the keep-alive ideas and choose a measured
-`MaxRequestWorkers` value for your application.
+Start here. The steady profile reads the server’s CPU count and gives Apache
+64 PHP-ready workers per CPU, with a minimum of 128 and a maximum of 2,048.
+It keeps worker counts proportional to the machine and favors consistent
+service during busy periods.
 
 ```bash
-sudo cp /etc/apache2/apache2.conf \
-  /etc/apache2/apache2.conf.before-apex-throughput
-sudo cp /etc/apache2/mods-enabled/mpm_event.conf \
-  /etc/apache2/mods-enabled/mpm_event.conf.before-apex-throughput
-sudo ./tools/apache_mode.sh throughput
+sudo php-apex-mode steady
 ```
 
-The tool replaces selected keep-alive and event-MPM values. Back up custom
-configuration first, as shown above. To restore it:
+The command writes one PHP Apex performance file, validates Apache, and
+restarts the correct service for Debian/Ubuntu, Fedora, or Arch.
+
+Show the active settings at any time:
 
 ```bash
-sudo cp /etc/apache2/apache2.conf.before-apex-throughput \
-  /etc/apache2/apache2.conf
-sudo cp /etc/apache2/mods-enabled/mpm_event.conf.before-apex-throughput \
-  /etc/apache2/mods-enabled/mpm_event.conf
-sudo apachectl -t
-sudo systemctl restart apache2
+php-apex-mode status
 ```
 
-Core keep-alive settings:
+If automatic CPU detection does not match the resources assigned to the
+server, provide the CPU count:
+
+```bash
+sudo APEX_CPUS=4 php-apex-mode steady
+```
+
+If your PHP application uses a large amount of memory per request, choose a
+smaller worker count. The supported range is 64 through 2,048:
+
+```bash
+sudo APEX_MAX_REQUEST_WORKERS=256 php-apex-mode steady
+```
+
+### Throughput profile—optional for large servers
+
+Use the throughput profile only when the server has enough memory for a large
+worker pool and receives a high volume of short requests:
+
+```bash
+sudo php-apex-mode throughput
+```
+
+This profile enables short keep-alive connections and allows up to 10,048
+Apache workers. For most application servers, the CPU-sized steady profile is
+the better starting point.
+
+### Configure the performance file manually
+
+If you prefer to manage Apache yourself, create the performance file at the
+path for your distribution:
+
+- Debian/Ubuntu: `/etc/apache2/conf-available/php-apex-performance.conf`
+- Fedora: `/etc/httpd/conf.d/php-apex-performance.conf`
+- Arch: `/etc/httpd/conf/conf.d/php-apex-performance.conf`
+
+This is the steady example for a 4-CPU server:
 
 ```apache
-KeepAlive On
+# PHP Apex steady profile for 4 CPUs
+KeepAlive Off
 MaxKeepAliveRequests 10000
-KeepAliveTimeout 1
-```
-
-On the benchmark host, throughput mode raised mod_apex from about 9.8k to
-38-41k requests/s. Profiling showed that connection and kernel work dominated
-when keep-alive was disabled.
-
-### Steady mode: the sensible starting point
-
-Use this when you want a smooth, dependable starting point. It is made for
-real sites, not leaderboard benchmarks:
-
-```bash
-sudo ./tools/apache_mode.sh steady
-```
-
-It looks at your server's CPU count and picks a sensible number of PHP-ready
-Apache workers. Small servers get at least 128 workers. Large servers stop at
-2,048 by default, so one command does not accidentally turn a big machine
-into a memory hog.
-
-If a container reports the wrong CPU count, or your PHP app needs more memory
-per request, you can choose the number yourself:
-
-```bash
-sudo APEX_CPUS=4 ./tools/apache_mode.sh steady
-sudo APEX_MAX_REQUEST_WORKERS=256 ./tools/apache_mode.sh steady
-```
-
-Steady mode favors a calm server over the biggest possible benchmark number.
-It does not restore previous custom settings. Show current values:
-
-```bash
-./tools/apache_mode.sh status
-```
-
-### Apache event MPM
-
-`MaxRequestWorkers` must fit CPU and memory. Keep these relationships valid:
-
-```text
-MaxRequestWorkers <= ServerLimit * ThreadsPerChild
-MaxSpareThreads <= MaxRequestWorkers
-```
-
-More threads do not create more CPU. Raise counts only after observing worker
-exhaustion, queueing, and available memory.
-
-### A working starting setup
-
-This is the short version: Apache uses the modern `event` mode, mod_apex runs
-PHP directly inside Apache.
-
-```apache
-# Load PHP first, then mod_apex.
-LoadFile /usr/local/php-zts/lib/libphp.so
-LoadModule apex_module /usr/lib/apache2/modules/mod_apex.so
+KeepAliveTimeout 5
 
 <IfModule mpm_event_module>
-    ThreadLimit 64
-    ThreadsPerChild 64
+StartServers 1
+ServerLimit 4
+ThreadLimit 64
+ThreadsPerChild 64
+MinSpareThreads 64
+MaxSpareThreads 256
+MaxRequestWorkers 256
+MaxConnectionsPerChild 0
 </IfModule>
-
-<FilesMatch \.php$>
-    SetHandler php-script
-</FilesMatch>
-
 ```
 
-Then let mod_apex choose the matching Apache worker settings:
+On Debian or Ubuntu, enable the file once:
 
 ```bash
-sudo ./tools/apache_mode.sh steady
+sudo a2enconf php-apex-performance
 sudo apachectl -t
+sudo systemctl restart apache2
 ```
 
-This is a clean route from web request to PHP: no FastCGI socket, no second
-PHP service, and no extra request queue to manage.
+On Fedora or Arch:
 
-### OPcache
+```bash
+sudo httpd -t
+sudo systemctl restart httpd
+```
 
-Production starting point:
+For a different CPU count, use `64 × CPU count` for `MaxRequestWorkers`,
+round `ServerLimit` up so `ServerLimit × 64` covers that worker count, and
+keep `ThreadsPerChild` and `ThreadLimit` at 64.
 
-Put these directives in the ZTS build's scanned INI directory (the packaged
-default is `/usr/local/php-zts/etc/conf.d/10-opcache.ini`):
+## OPcache settings
+
+The packaged PHP runtime already enables OPcache and JIT. Its configuration is
+stored in `/usr/local/php-zts/etc/conf.d/10-opcache.ini`.
+
+A solid application-server starting point is:
 
 ```ini
 zend_extension=opcache.so
@@ -362,127 +247,64 @@ opcache.jit=tracing
 opcache.jit_buffer_size=128M
 ```
 
-With `opcache.validate_timestamps=0`, restart/reload Apache or call
-`opcache_reset()` during deployment. Confirm `php_sapi_name()` returns
-`apache2handler` and `opcache_get_status(false)` does not return `false`.
+With `opcache.validate_timestamps=0`, restart Apache during deployment so
+updated PHP files are loaded.
 
-Verify from a web request, because the CLI can use a different SAPI and INI:
+## PHP application settings
 
-```bash
-sudo tee /var/www/html/apex-opcache-check.php >/dev/null <<'PHP'
-<?php
-header('Content-Type: text/plain');
-echo 'sapi=' . php_sapi_name() . PHP_EOL;
-echo 'opcache=' . (opcache_get_status(false) !== false ? 'on' : 'off') . PHP_EOL;
-PHP
-curl -sS http://127.0.0.1/apex-opcache-check.php
-sudo rm /var/www/html/apex-opcache-check.php
-```
-
-Expected: `sapi=apache2handler` and `opcache=on`. Adjust the document root
-for your vhost.
-
-JIT helps numeric workloads more than typical CMS code. Benchmark JIT on and
-off before treating it as required.
-
-### Linux limits
-
-Raise Apache's file-descriptor limit:
-
-```bash
-sudo systemctl edit apache2
-```
-
-Add:
+Place application-specific PHP settings in a separate INI file, for example
+`/usr/local/php-zts/etc/conf.d/90-application.ini`:
 
 ```ini
-[Service]
-LimitNOFILE=65535
+memory_limit=256M
+upload_max_filesize=32M
+post_max_size=32M
+max_execution_time=60
+date.timezone=UTC
 ```
 
-For thousands of connections, test these host limits:
+Restart Apache after changing PHP settings.
+
+## If setup needs attention
+
+Show loaded modules:
 
 ```bash
-sudo sysctl -w net.core.somaxconn=65535
-sudo sysctl -w net.ipv4.tcp_max_syn_backlog=65535
-sudo systemctl daemon-reload
-sudo systemctl restart apache2
+sudo apachectl -M
 ```
 
-These are host-wide settings. Change them only after measurement shows a
-listen or SYN backlog limit; they do not increase PHP execution capacity.
-
-Persist successful `sysctl` values in `/etc/sysctl.d/`; command-line values
-do not survive reboot.
-
-### Load testing
-
-Check response correctness before measuring speed:
+Show the PHP Apex performance profile:
 
 ```bash
-sudo install -m 0644 test.php /var/www/html/apex-bench.php
-curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1/apex-bench.php
-wrk -t2 -c100 -d30s --latency http://127.0.0.1/apex-bench.php
+php-apex-mode status
 ```
 
-For 1,000 local connections, use enough client threads:
-
-```bash
-wrk -t8 -c1000 -d30s --timeout 10s --latency \
-  http://127.0.0.1/apex-bench.php
-sudo rm /var/www/html/apex-bench.php
-```
-
-This setup completed 539,573 requests in 15 seconds. Use a separate
-load-generator machine for production capacity tests. Same-host `wrk` steals
-CPU from Apache.
-
-## Troubleshooting
-
-**Module does not load / `apachectl -t` reports a `LoadFile` or `LoadModule`
-issue:**
-Confirm both mod_apex packages are installed, then check that
-`/usr/local/php-zts/lib/libphp.so` and the module file named in Apache's
-message exist. Reinstall the matching package pair if either one is missing.
-
-**Apache reports `mod_apex: requires a threaded MPM; skipping PHP engine init
-in this process`:** Apache is still using its old request mode. Repeat
-[Make Apache use mod_apex for PHP](#1-make-apache-use-mod_apex-for-php), then
-run `sudo apachectl -M | grep mpm`.
-
-**PHP requests do not reach your application, or Apache reports
-`mod_apex: expected PHP handler mapping is 'php-script' or
-'application/x-httpd-php'`:** the
-`<FilesMatch \.php$>` block routing to `SetHandler php-script` is missing or
-was overridden by another vhost/`.htaccess`. Add it again from
-[Map PHP requests](#2-map-php-requests).
-
-**PHP does not start in an Apache child:** review the ZTS runtime directly to
-confirm its configuration and loaded extensions:
+Show the packaged PHP runtime and extensions:
 
 ```bash
 /usr/local/php-zts/bin/php -v
-/usr/local/php-zts/bin/php -m       # lists loaded extensions
-/usr/local/php-zts/bin/php --ini    # shows which php.ini/scan dirs are used
+/usr/local/php-zts/bin/php -m
+/usr/local/php-zts/bin/php --ini
 ```
 
-**`opcache_get_status()` returns `false` / no OPcache speedup observed:**
-first confirm you are testing through Apache, not the PHP command line. Use
-the web check in [OPcache](#opcache): it should show
-`sapi=apache2handler` and `opcache=on`.
+Confirm these files exist:
 
-**Distro PHP (`mod_php`/`php-fpm`) still seems to be handling requests:**
-repeat [Make Apache use mod_apex for PHP](#1-make-apache-use-mod_apex-for-php)
-and verify with:
-
-```bash
-sudo apachectl -M | grep -E 'apex_module|mpm_event_module|php_module'
-# expect: apex_module and mpm_event_module present, php_module absent
+```text
+/usr/local/php-zts/lib/libphp.so
+/usr/local/sbin/php-apex-mode
 ```
 
-**Quick diagnostic commands:**
+On Debian/Ubuntu, the module is installed at
+`/usr/lib/apache2/modules/mod_apex.so`. On Fedora and Arch it is installed in
+the distribution’s Apache module directory.
 
-```bash
-sudo apachectl -M                              # confirm loaded modules
-curl -sS http://127.0.0.1/your-check.php       # confirm your PHP site responds
-```
+## Requirements
+
+- Apache 2.4 with `event` MPM.
+- The matching `php-zts-full` and `mod-apex` package pair.
+- A PHP application whose third-party extensions are safe for PHP ZTS.
+- Enough memory for the configured number of active PHP requests.
+
+## License
+
+[PolyForm Internal Use License 1.0.0](https://polyformproject.org/licenses/internal-use/1.0.0)
