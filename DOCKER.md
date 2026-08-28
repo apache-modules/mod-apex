@@ -18,8 +18,8 @@ most WordPress, Drupal, Symfony, and custom PHP applications commonly need.
 - **Application extensions:** curl, mbstring, intl, fileinfo, EXIF, BCMath,
   GMP, sodium, SOAP, XML, SimpleXML, XMLReader, XMLWriter, XSL, and ZIP.
 - **Image handling:** GD with JPEG, PNG, WebP, and FreeType, plus Imagick.
-- **Container setup:** automatic CPU-based Apache sizing, hardened Apache
-  defaults, a static `/healthz` check, and logs sent to the container output.
+- **Container setup:** WordPress-tested Apache sizing, hardened Apache defaults,
+  a static `/healthz` check, and logs sent to the container output.
 - **Base system:** a small Debian Bookworm Slim runtime containing only the
   libraries required by Apache, PHP, and the bundled extensions.
 
@@ -33,7 +33,7 @@ Put your PHP application in an `app` folder, then run:
 ```bash
 docker pull practicalwebuser/mod_apex-apache:php8.4
 docker run -d --name my-php-app \
-  --cpus=4 --memory=1g \
+  --cpus=4 --memory=2g \
   -p 8080:80 \
   -v "$(pwd)/app:/var/www/html:ro" \
   practicalwebuser/mod_apex-apache:php8.4
@@ -47,11 +47,11 @@ The application mount is read-only above. That is a good default. If your
 application needs uploads, cache files, or generated media, mount only those
 specific writable directories as named volumes or writable bind mounts.
 
-## Resource limits and automatic sizing
+## Resource limits and WordPress-safe sizing
 
-Set CPU and memory limits in Docker, Compose, or Kubernetes. PHP Apex reads
-the CPU limit at startup and chooses a matching Apache worker count. This
-keeps a small container from starting with settings intended for a large host.
+Set CPU and memory limits in Docker, Compose, or Kubernetes. PHP Apex starts
+with the WordPress-tested 128-worker profile and recycles Apache children after
+1,000 connections so memory remains controlled during sustained traffic.
 
 ```yaml
 services:
@@ -62,23 +62,20 @@ services:
     volumes:
       - ./app:/var/www/html:ro
     cpus: 4
-    mem_limit: 1g
+    mem_limit: 2g
 ```
 
-The default is 64 workers per available CPU, with a safe range of 128 to
-2,048 workers. To override it deliberately:
+The default is 128 workers. To override it deliberately:
 
 ```bash
 docker run -d --name my-php-app \
-  --cpus=4 --memory=1g \
+  --cpus=4 --memory=2g \
   -e APEX_MAX_REQUEST_WORKERS=256 \
   -p 8080:80 \
   practicalwebuser/mod_apex-apache:php8.4
 ```
 
-`APEX_MAX_REQUEST_WORKERS` accepts whole numbers from 64 through 2,048.
-`APEX_CPUS` is an optional whole-number override for unusual runtimes that do
-not expose their CPU limit to the container.
+`APEX_MAX_REQUEST_WORKERS` accepts whole numbers from 64 through 512.
 
 ## Health checks and logs
 
@@ -113,7 +110,7 @@ php_admin_value post_max_size 32M
 
 ```bash
 docker run -d --name my-php-app \
-  --cpus=4 --memory=1g \
+  --cpus=4 --memory=2g \
   -p 8080:80 \
   -v "$(pwd)/app:/var/www/html:ro" \
   -v "$(pwd)/app.conf:/etc/apache2/conf-enabled/zzz-app.conf:ro" \

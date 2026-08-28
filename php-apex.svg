@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100" width="400" height="100">
+  <!-- Background -->
+  <rect width="400" height="100" fill="#0a0a0a" rx="6"/>
+
+  <!-- Subtle border -->
+  <rect x="1" y="1" width="398" height="98" fill="none" stroke="#1a1a1a" stroke-width="1" rx="6"/>
+
+  <!-- Prompt symbol -->
+  <text x="20" y="58" font-family="'Courier New', Courier, monospace" font-size="28" fill="#00ff41" font-weight="bold">&gt;</text>
+
+  <!-- Main text -->
+  <text x="48" y="58" font-family="'Courier New', Courier, monospace" font-size="28" fill="#00ff41" font-weight="bold" letter-spacing="2">PHP Apex</text>
+
+  <!-- Blinking cursor -->
+  <rect x="218" y="38" width="14" height="24" fill="#00ff41">
+    <animate attributeName="opacity" values="1;1;0;0" dur="1.2s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- Scanline effect (subtle) -->
+  <defs>
+    <pattern id="scanlines" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect width="4" height="2" fill="rgba(0,255,65,0.02)"/>
+    </pattern>
+  </defs>
+  <rect width="400" height="100" fill="url(#scanlines)" rx="6"/>
+</svg>   

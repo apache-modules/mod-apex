@@ -18,13 +18,12 @@ Usage:
   sudo $(basename "$0") throughput
 
 Profiles:
-  steady      Recommended CPU-sized settings for a dependable server.
-  throughput  Large-worker profile for servers sized for heavy traffic.
+  steady      WordPress-safe default validated by a one-hour soak test.
+  throughput  Controlled 256-worker profile for higher traffic.
   status      Show the active PHP Apex performance file.
 
-Steady profile overrides:
-  APEX_CPUS                 Use this CPU count instead of auto-detection.
-  APEX_MAX_REQUEST_WORKERS  Override the worker count (64-2048).
+Profile override:
+  APEX_MAX_REQUEST_WORKERS  Override the worker count (64-512).
 EOF
 }
 
@@ -98,49 +97,37 @@ require_managed_directory() {
 }
 
 calculate_steady_values() {
-    local cpus
-    cpus="${APEX_CPUS:-}"
-    if [[ -z "$cpus" ]]; then
-        cpus="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
-    fi
-    if [[ ! "$cpus" =~ ^[1-9][0-9]*$ ]]; then
-        echo "Unable to detect a positive CPU count. Set APEX_CPUS=N." >&2
+    profile_name="steady"
+    max_request_workers="${APEX_MAX_REQUEST_WORKERS:-128}"
+    calculate_worker_layout 2
+    keep_alive="On"
+    max_keep_alive_requests=10000
+    keep_alive_timeout=1
+    max_connections_per_child=1000
+    printf 'Steady WordPress profile: MaxRequestWorkers=%s\n' "$max_request_workers"
+}
+
+calculate_worker_layout() {
+    local preferred_start_servers="$1"
+    if [[ ! "$max_request_workers" =~ ^[1-9][0-9]*$ ]] \
+        || (( max_request_workers < 64 || max_request_workers > 512 )); then
+        echo "APEX_MAX_REQUEST_WORKERS must be an integer from 64 to 512." >&2
         exit 2
     fi
-
-    max_request_workers=$((cpus * 64))
-    if (( max_request_workers < 128 )); then
-        max_request_workers=128
-    elif (( max_request_workers > 2048 )); then
-        max_request_workers=2048
-    fi
-    if [[ -n "${APEX_MAX_REQUEST_WORKERS:-}" ]]; then
-        if [[ ! "$APEX_MAX_REQUEST_WORKERS" =~ ^[1-9][0-9]*$ ]] \
-            || (( APEX_MAX_REQUEST_WORKERS < 64 || APEX_MAX_REQUEST_WORKERS > 2048 )); then
-            echo "APEX_MAX_REQUEST_WORKERS must be an integer from 64 to 2048." >&2
-            exit 2
-        fi
-        max_request_workers="$APEX_MAX_REQUEST_WORKERS"
-    fi
-
     threads_per_child=64
     server_limit=$(((max_request_workers + threads_per_child - 1) / threads_per_child))
-    start_servers=$(((cpus + 3) / 4))
-    if (( start_servers < 1 )); then
-        start_servers=1
-    elif (( start_servers > server_limit )); then
+    start_servers="$preferred_start_servers"
+    if (( start_servers > server_limit )); then
         start_servers=$server_limit
     fi
     min_spare_threads=$threads_per_child
-    (( min_spare_threads > max_request_workers )) && min_spare_threads=$max_request_workers
-    max_spare_threads=$((threads_per_child * 4))
-    (( max_spare_threads > max_request_workers )) && max_spare_threads=$max_request_workers
-
-    keep_alive="Off"
-    max_keep_alive_requests=10000
-    keep_alive_timeout=5
-    profile_name="steady"
-    printf 'Steady profile: CPUs=%s, MaxRequestWorkers=%s\n' "$cpus" "$max_request_workers"
+    if (( min_spare_threads > max_request_workers )); then
+        min_spare_threads=$max_request_workers
+    fi
+    max_spare_threads=$((threads_per_child * server_limit))
+    if (( max_spare_threads > max_request_workers )); then
+        max_spare_threads=$max_request_workers
+    fi
 }
 
 set_throughput_values() {
@@ -148,12 +135,9 @@ set_throughput_values() {
     keep_alive="On"
     max_keep_alive_requests=10000
     keep_alive_timeout=1
-    start_servers=8
-    server_limit=157
-    threads_per_child=64
-    min_spare_threads=512
-    max_spare_threads=1024
-    max_request_workers=10048
+    max_request_workers="${APEX_MAX_REQUEST_WORKERS:-256}"
+    calculate_worker_layout 4
+    max_connections_per_child=1000
     printf 'Throughput profile: MaxRequestWorkers=%s\n' "$max_request_workers"
 }
 
@@ -174,7 +158,7 @@ ThreadsPerChild $threads_per_child
 MinSpareThreads $min_spare_threads
 MaxSpareThreads $max_spare_threads
 MaxRequestWorkers $max_request_workers
-MaxConnectionsPerChild 0
+MaxConnectionsPerChild $max_connections_per_child
 </IfModule>
 EOF
 }

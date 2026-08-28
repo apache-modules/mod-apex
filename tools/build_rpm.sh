@@ -59,6 +59,7 @@ build_mod_apex() {
     cp "$REPO_ROOT/mod_apex.c" "$REPO_ROOT/build-install.sh" \
         "$REPO_ROOT/LICENSE" "$REPO_ROOT/NOTICE" "$stage/$name/"
     cp "$REPO_ROOT/packaging/rpm/apex.load" "$stage/$name/packaging/rpm/"
+    cp "$REPO_ROOT/packaging/apache-wordpress.conf" "$stage/$name/packaging/"
     cp "$REPO_ROOT/docker/apex.conf" "$stage/$name/docker/"
     cp "$REPO_ROOT/tools/apache_mode.sh" "$stage/$name/tools/"
     tar -C "$stage" -czf "$TOPDIR/SOURCES/${name}.tar.gz" "$name"

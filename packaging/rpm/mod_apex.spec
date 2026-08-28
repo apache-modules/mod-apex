@@ -42,6 +42,8 @@ install -D -m 0644 docker/apex.conf \
     %{buildroot}/etc/httpd/conf.d/mod_apex.conf
 install -D -m 0755 tools/apache_mode.sh \
     %{buildroot}/usr/local/sbin/php-apex-mode
+install -D -m 0644 packaging/apache-wordpress.conf \
+    %{buildroot}/etc/httpd/conf.d/php-apex-performance.conf
 
 %files
 %license LICENSE
@@ -49,6 +51,7 @@ install -D -m 0755 tools/apache_mode.sh \
 /usr/lib64/httpd/modules/mod_apex.so
 %config(noreplace) /etc/httpd/conf.modules.d/10-mod_apex.conf
 %config(noreplace) /etc/httpd/conf.d/mod_apex.conf
+%config(noreplace) /etc/httpd/conf.d/php-apex-performance.conf
 /usr/local/sbin/php-apex-mode
 
 %changelog

@@ -64,8 +64,8 @@ build_module_package() {
     mkdir -p "$work_dir"
     tar -C "$repo_root" -czf "$work_dir/${name}.tar.gz" \
         --transform "s,^,${name}/," \
-        LICENSE NOTICE mod_apex.c build-install.sh packaging/arch/10-mod_apex.conf \
-        packaging/arch/mod_apex.conf tools/apache_mode.sh
+        LICENSE NOTICE mod_apex.c build-install.sh packaging/apache-wordpress.conf \
+        packaging/arch/10-mod_apex.conf packaging/arch/mod_apex.conf tools/apache_mode.sh
     cp "$php_package" "$work_dir/php-zts-full.pkg.tar.zst"
     sed "s/^pkgver=.*/pkgver=${mod_apex_version}/" \
         "$repo_root/packaging/arch/PKGBUILD.mod-apex" > "$work_dir/PKGBUILD"

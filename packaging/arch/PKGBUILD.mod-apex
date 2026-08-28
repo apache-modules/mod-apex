@@ -41,6 +41,8 @@ package() {
         "${pkgdir}/etc/httpd/conf/conf.d/10-mod_apex.conf"
     install -D -m 0644 packaging/arch/mod_apex.conf \
         "${pkgdir}/etc/httpd/conf/conf.d/mod_apex.conf"
+    install -D -m 0644 packaging/apache-wordpress.conf \
+        "${pkgdir}/etc/httpd/conf/conf.d/php-apex-performance.conf"
     install -D -m 0755 tools/apache_mode.sh \
         "${pkgdir}/usr/local/sbin/php-apex-mode"
     install -D -m 0644 LICENSE \
