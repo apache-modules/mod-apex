@@ -10,4 +10,4 @@ Description: Apache module embedding PHP (ZTS) runtime for mod_apex
  This package installs mod_apex.so and the Apache module loader file.
  It expects a compatible embedded PHP library at /usr/local/php-zts/lib/libphp.so.
  .
- License: Apache-2.0 (see /usr/share/doc/mod-apex/LICENSE)
+ License: PolyForm Internal Use 1.0.0 (see /usr/share/doc/mod-apex/LICENSE)
