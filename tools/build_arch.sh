@@ -7,7 +7,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 php_version="${PHP_VERSION:-8.4.21}"
-mod_apex_version="${MOD_APEX_VERSION:-0.1.6}"
+mod_apex_version="${MOD_APEX_VERSION:-0.1.7}"
 out_dir="${OUT_DIR:-$repo_root/dist/arch}"
 
 require_command() {

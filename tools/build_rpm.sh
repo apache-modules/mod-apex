@@ -16,7 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PHP_VERSION="${PHP_VERSION:-8.4.21}"
-MOD_APEX_VERSION="${MOD_APEX_VERSION:-0.1.6}"
+MOD_APEX_VERSION="${MOD_APEX_VERSION:-0.1.7}"
 TOPDIR="${TOPDIR:-$REPO_ROOT/dist/rpmbuild}"
 TARGETS="${1:-all}"
 
@@ -68,10 +68,30 @@ build_mod_apex() {
         -bb "$TOPDIR/SPECS/mod_apex.spec"
 }
 
+install_built_php_zts() {
+    local php_rpm
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        echo "Building both RPMs requires root so the freshly built php-zts-full RPM can be installed for the mod_apex build." >&2
+        echo "Run this command in the documented Fedora container, or build php-zts-full and install it before building mod_apex." >&2
+        exit 1
+    fi
+
+    require_cmd dnf
+    php_rpm="$(find "$TOPDIR/RPMS" -type f -name "php-zts-full-${PHP_VERSION}-*.rpm" ! -name '*debuginfo*' ! -name '*debugsource*' -print -quit)"
+    if [[ -z "$php_rpm" ]]; then
+        echo "Built php-zts-full RPM not found under $TOPDIR/RPMS" >&2
+        exit 1
+    fi
+
+    echo "==> Installing the freshly built php-zts-full RPM for the mod_apex build"
+    dnf -y install "$php_rpm"
+}
+
 case "$TARGETS" in
     php-zts-full) build_php_zts_full ;;
     mod_apex) build_mod_apex ;;
-    all) build_php_zts_full; build_mod_apex ;;
+    all) build_php_zts_full; install_built_php_zts; build_mod_apex ;;
     *) echo "Usage: $0 [php-zts-full|mod_apex]" >&2; exit 2 ;;
 esac
 

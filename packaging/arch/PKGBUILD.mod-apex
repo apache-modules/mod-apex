@@ -1,7 +1,7 @@
 # Maintained for private package releases. The PolyForm Internal Use license
 # does not permit publishing this package to the public AUR.
 pkgname=mod-apex
-pkgver=0.1.6
+pkgver=0.1.7
 pkgrel=1
 pkgdesc='Apache module that embeds a persistent PHP ZTS runtime in event-MPM workers'
 arch=('x86_64')

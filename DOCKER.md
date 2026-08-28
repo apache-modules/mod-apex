@@ -74,13 +74,13 @@ docker ps
 docker logs my-php-app
 ```
 
-Apache access logs go to standard output and error logs go to standard error,
-so `docker logs` and your platform's log collector receive them automatically.
+Apache access and diagnostic logs go to the container log stream, so `docker
+logs` and your platform's log collector receive them automatically.
 
 ## Apache and PHP settings
 
-The image starts with safe Apache defaults and PHP Apex error detail disabled.
-Add your own Apache settings as a separate file, so image upgrades stay easy:
+The image starts with safe Apache defaults. Add your own Apache settings as a
+separate file, so image upgrades stay easy:
 
 ```apache
 # app.conf

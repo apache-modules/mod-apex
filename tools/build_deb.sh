@@ -5,12 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PKG_ROOT="$REPO_ROOT/packaging/deb"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/dist}"
-VERSION="${VERSION:-0.1.6}"
+VERSION="${VERSION:-0.1.7}"
 ARCH="${ARCH:-$(dpkg --print-architecture)}"
 PKG_NAME="mod-apex"
 PKG_DIR="$OUT_DIR/${PKG_NAME}_${VERSION}_${ARCH}"
 PHP_PREFIX="${PHP_PREFIX:-/usr/local/php-zts}"
 PHP_CONFIG="${PHP_CONFIG:-$PHP_PREFIX/bin/php-config}"
+PHP_ZTS_VERSION=""
 
 require_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -89,6 +90,12 @@ require_php_embed_zts() {
 
 require_php_embed_zts "$PHP_CONFIG"
 
+PHP_ZTS_VERSION="$($PHP_CONFIG --version 2>/dev/null || true)"
+if [[ -z "$PHP_ZTS_VERSION" ]]; then
+    echo "Unable to read the PHP version from $PHP_CONFIG" >&2
+    exit 1
+fi
+
 if ! LIBPHP_PATH="$(detect_libphp_path "$PHP_CONFIG")"; then
     echo "Could not locate libphp.so from $PHP_CONFIG." >&2
     echo "Ensure PHP embed/ZTS is installed, or set PHP_CONFIG to the correct binary." >&2
@@ -133,6 +140,7 @@ fi
 sed \
   -e "s/@VERSION@/$VERSION/g" \
   -e "s/@ARCH@/$ARCH/g" \
+  -e "s/@PHP_ZTS_VERSION@/$PHP_ZTS_VERSION/g" \
   "$PKG_ROOT/control" > "$PKG_DIR/DEBIAN/control"
 
 install -m 0755 "$PKG_ROOT/postinst" "$PKG_DIR/DEBIAN/postinst"

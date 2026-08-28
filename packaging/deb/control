@@ -4,7 +4,7 @@ Section: web
 Priority: optional
 Architecture: @ARCH@
 Maintainer: mod_apex maintainers <maintainers@example.com>
-Depends: apache2 (>= 2.4), libc6, libapr1
+Depends: php-zts-full (>= @PHP_ZTS_VERSION@), apache2 (>= 2.4), libc6, libapr1
 Description: Apache module embedding PHP (ZTS) runtime for mod_apex
  mod_apex is an Apache module that embeds a persistent PHP ZTS runtime.
  This package installs mod_apex.so and the Apache module loader file.

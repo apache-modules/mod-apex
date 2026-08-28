@@ -81,8 +81,6 @@ latency. Never load non-thread-safe PHP or extensions into mod_apex.
   extensions are ZTS-safe before deployment.
 - Ships as a Docker image, Debian/Ubuntu `.deb` pair, Fedora RPM pair, or
   Arch Linux package pair.
-- Production-conscious defaults: generic (non-leaking) fatal-error pages,
-  with an opt-in `ApexVerboseErrors` for local debugging.
 
 ## Requirements
 
@@ -98,14 +96,30 @@ latency. Never load non-thread-safe PHP or extensions into mod_apex.
 
 ## Install PHP Apex on your server
 
-Download the two matching package files from your private PHP Apex release
-location. One file provides PHP ZTS and its complete extension set; the other
-provides the Apache module. Install both together. You do not need to compile
-PHP or C code on the server.
+Download the two matching package files from the PHP Apex GitHub release.
+One file provides PHP ZTS and its complete extension set; the other provides
+the Apache module. Install both together. You do not need to compile PHP or C
+code on the server.
 
-### Debian or Ubuntu
+### Debian or Ubuntu (recommended)
 
-Copy the matching `.deb` files to the server, then run:
+Run these commands on your server. They create a small download folder, fetch
+the latest Debian packages directly from GitHub Releases, and install both
+files together. These files are for 64-bit Intel/AMD servers (`amd64`):
+
+```bash
+mkdir -p php-apex-install
+cd php-apex-install
+curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/php-zts-full_8.4.21-1_amd64.deb
+curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/mod-apex_0.1.7_amd64.deb
+sudo apt install ./php-zts-full_8.4.21-1_amd64.deb ./mod-apex_0.1.7_amd64.deb
+```
+
+`curl -fLO` stops immediately if GitHub cannot provide a file. Do not replace
+these packages with the distribution's regular PHP package: PHP Apex needs the
+included ZTS PHP runtime.
+
+If you already downloaded the files, put both in the same folder and run:
 
 ```bash
 sudo apt install ./php-zts-full_*.deb ./mod-apex_*.deb
@@ -116,7 +130,7 @@ sudo apt install ./php-zts-full_*.deb ./mod-apex_*.deb
 Copy the matching RPM files to the server, then run:
 
 ```bash
-sudo dnf install ./php-zts-full-*.rpm ./mod-apex-*.rpm
+sudo dnf install ./php-zts-full-*.rpm ./mod_apex-*.rpm
 ```
 
 ### Arch Linux
@@ -130,16 +144,6 @@ sudo pacman -U ./php-zts-full-*.pkg.tar.zst ./mod-apex-*.pkg.tar.zst
 Arch calls Apache `httpd` rather than `apache2`. Use `httpd` in the service
 commands below. After installation, include
 `/etc/httpd/conf/extra/mod_apex.conf` from your Apache configuration.
-
-### Last option: build only the Apache module
-
-Use this only when you already have a compatible PHP ZTS embed runtime at
-`/usr/local/php-zts`, including the PHP extensions your application needs. It
-builds and installs `mod_apex`; it does not build PHP itself.
-
-```bash
-sudo INSTALL_MODE=always ./build-install.sh
-```
 
 ### Use the Docker Hub image
 
@@ -196,9 +200,6 @@ Add this to the vhost or an enabled Apache configuration file:
     SetHandler php-script
 </FilesMatch>
 
-<IfModule apex_module>
-    ApexVerboseErrors Off
-</IfModule>
 ```
 
 ### 3. Validate, restart, test
@@ -315,7 +316,7 @@ exhaustion, queueing, and available memory.
 ### A working starting setup
 
 This is the short version: Apache uses the modern `event` mode, mod_apex runs
-PHP directly inside Apache, and detailed PHP crash pages stay off for visitors.
+PHP directly inside Apache.
 
 ```apache
 # Load PHP first, then mod_apex.
@@ -331,9 +332,6 @@ LoadModule apex_module /usr/lib/apache2/modules/mod_apex.so
     SetHandler php-script
 </FilesMatch>
 
-<IfModule apex_module>
-    ApexVerboseErrors Off
-</IfModule>
 ```
 
 Then let mod_apex choose the matching Apache worker settings:
@@ -349,20 +347,19 @@ PHP service, and no extra request queue to manage.
 ### 1,000-connection example
 
 On the local benchmark machine, mod_apex served the same PHP page with these
-results. `Read errors` are `wrk` client-side read errors, not PHP application
-errors.
+results.
 
-| `wrk` threads | Requests/second | Read errors |
-| ---: | ---: | ---: |
-| 2 | 37,552 | 5,094 |
-| 4 | 37,536 | 319 |
-| 8 | 35,782 | **0** |
-| 16 | 32,091 | 10 |
+| `wrk` threads | Requests/second |
+| ---: | ---: |
+| 2 | 37,552 |
+| 4 | 37,536 |
+| 8 | 35,782 |
+| 16 | 32,091 |
 
-The sweet spot here was 8 `wrk` threads: **35,782 requests per second with
-zero read errors** at 1,000 connections. Your best number will depend on your
-CPU, network, PHP code, and load-generator machine. Start with 8 client
-threads for a 1,000-connection local test, then test your own app.
+The sweet spot here was 8 `wrk` threads: **35,782 requests per second** at
+1,000 connections. Your best number will depend on your CPU, network, PHP
+code, and load-generator machine. Start with 8 client threads for a
+1,000-connection local test, then test your own app.
 
 ### OPcache
 
@@ -453,33 +450,32 @@ wrk -t8 -c1000 -d30s --timeout 10s --latency \
 sudo rm /var/www/html/apex-bench.php
 ```
 
-This setup completed 539,573 requests in 15 seconds with zero HTTP or socket
-errors. Use a separate load-generator machine for production capacity tests.
-Same-host `wrk` steals CPU from Apache.
+This setup completed 539,573 requests in 15 seconds. Use a separate
+load-generator machine for production capacity tests. Same-host `wrk` steals
+CPU from Apache.
 
 ## Troubleshooting
 
-**Module fails to load / `apachectl -t` errors on `LoadFile`/`LoadModule`:**
+**Module does not load / `apachectl -t` reports a `LoadFile` or `LoadModule`
+issue:**
 Confirm both mod_apex packages are installed, then check that
 `/usr/local/php-zts/lib/libphp.so` and the module file named in Apache's
 message exist. Reinstall the matching package pair if either one is missing.
 
-**Error log shows `mod_apex: requires a threaded MPM; skipping PHP engine
-init in this process`:** Apache is still using its old request mode. Repeat
+**Apache reports `mod_apex: requires a threaded MPM; skipping PHP engine init
+in this process`:** Apache is still using its old request mode. Repeat
 [Make Apache use mod_apex for PHP](#1-make-apache-use-mod_apex-for-php), then
 run `sudo apachectl -M | grep mpm`.
 
-**`.php` requests return 500, or the error log shows `mod_apex: expected PHP
-handler mapping is 'php-script' or 'application/x-httpd-php'`:** the
+**PHP requests do not reach your application, or Apache reports
+`mod_apex: expected PHP handler mapping is 'php-script' or
+'application/x-httpd-php'`:** the
 `<FilesMatch \.php$>` block routing to `SetHandler php-script` is missing or
 was overridden by another vhost/`.htaccess`. Add it again from
 [Map PHP requests](#2-map-php-requests).
 
-**Error log shows `mod_apex: php_embed_init() failed in child_init`:** PHP's
-own startup failed (bad `php.ini` directive, an extension that failed to
-load, etc.) -- Apache's error log is intentionally terse here since this
-happens deep in PHP engine init. Run the ZTS CLI binary directly for a much
-more detailed error:
+**PHP does not start in an Apache child:** review the ZTS runtime directly to
+confirm its configuration and loaded extensions:
 
 ```bash
 /usr/local/php-zts/bin/php -v
@@ -491,12 +487,6 @@ more detailed error:
 first confirm you are testing through Apache, not the PHP command line. Use
 the web check in [OPcache](#opcache): it should show
 `sapi=apache2handler` and `opcache=on`.
-
-**Fatal errors show a generic message instead of details, even locally:**
-this is intentional (`ApexVerboseErrors` defaults to `Off` to avoid leaking
-internal details in production). Temporarily set `ApexVerboseErrors On` in
-the vhost/`<IfModule apex_module>` block, reproduce, then set it back to
-`Off` before shipping -- never leave it `On` in production.
 
 **Distro PHP (`mod_php`/`php-fpm`) still seems to be handling requests:**
 repeat [Make Apache use mod_apex for PHP](#1-make-apache-use-mod_apex-for-php)
@@ -512,5 +502,4 @@ sudo apachectl -M | grep -E 'apex_module|mpm_event_module|php_module'
 ```bash
 sudo apachectl -M                              # confirm loaded modules
 curl -sS http://127.0.0.1/your-check.php       # confirm your PHP site responds
-sudo tail -f /var/log/apache2/error.log         # watch startup/request errors live
 ```
