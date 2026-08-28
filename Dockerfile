@@ -17,11 +17,12 @@ ARG PHP_VERSION=8.4.21
 ARG APCU_VERSION=5.1.24
 ARG REDIS_VERSION=6.1.0
 ARG IMAGICK_VERSION=3.8.1
+ARG DEBIAN_IMAGE=debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 
 ########################################################################
 # Stage 1: build PHP (ZTS + embed SAPI) and mod_apex from source
 ########################################################################
-FROM debian:bookworm-slim AS builder
+FROM ${DEBIAN_IMAGE} AS builder
 ARG PHP_VERSION
 ARG APCU_VERSION
 ARG REDIS_VERSION
@@ -87,35 +88,32 @@ RUN chmod +x build-install.sh \
 ########################################################################
 # Stage 2: runtime image
 ########################################################################
-FROM debian:bookworm-slim
+FROM ${DEBIAN_IMAGE}
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Runtime libraries for the extensions enabled above. This reuses the same
-# -dev packages as the builder stage (instead of hand-picking exact
-# version-suffixed runtime packages like libicu72) so apt resolves the
-# correct matching shared libraries for whatever bookworm point release is
-# current, at the cost of also shipping unused headers. If image size
-# matters more than that safety margin, replace this list with the specific
-# runtime (non-dev) package names verified against your base image.
+# Runtime libraries for the extensions enabled above. Keep compiler tools and
+# development headers in the builder stage so the published image contains
+# only what Apache, PHP, and the enabled extensions need to run.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         apache2 \
-        libxml2-dev \
-        libssl-dev \
-        libcurl4-openssl-dev \
-        zlib1g-dev \
-        libsqlite3-dev \
-        libonig-dev \
-        libicu-dev \
-        libzip-dev \
-        libxslt1-dev \
-        libfreetype6-dev \
-        libjpeg62-turbo-dev \
-        libwebp-dev \
-        libpng-dev \
-        libsodium-dev \
-        libgmp-dev \
-        libmagickwand-dev \
         ca-certificates \
+        curl \
+        libcurl4 \
+        libfreetype6 \
+        libgmp10 \
+        libicu72 \
+        libjpeg62-turbo \
+        libmagickwand-6.q16-6 \
+        libonig5 \
+        libpng16-16 \
+        libsodium23 \
+        libsqlite3-0 \
+        libssl3 \
+        libwebp7 \
+        libxml2 \
+        libxslt1.1 \
+        libzip4 \
+        zlib1g \
     && rm -rf /var/lib/apt/lists/* \
     && a2dismod mpm_prefork >/dev/null 2>&1 || true \
     && a2enmod mpm_event
@@ -130,24 +128,39 @@ COPY packaging/deb/apex.load /etc/apache2/mods-available/apex.load
 COPY docker/apex.conf /etc/apache2/mods-available/apex.conf
 RUN a2enmod apex
 
-# mpm_event / KeepAlive tuning, ServerName, and the default vhost.
+# The entrypoint writes the MPM worker count for the container's available
+# CPUs. Keep this installed configuration as a clear marker that sizing is
+# generated at container start.
 COPY docker/mpm_event.conf /etc/apache2/mods-available/mpm_event.conf
 COPY docker/keepalive-tuning.conf /etc/apache2/conf-available/keepalive-tuning.conf
 COPY docker/servername.conf /etc/apache2/conf-available/servername.conf
 COPY docker/security-hardening.conf /etc/apache2/conf-available/security-hardening.conf
-RUN a2enconf keepalive-tuning servername security-hardening
+RUN touch /etc/apache2/conf-available/apex-runtime.conf \
+    && a2enconf apex-runtime keepalive-tuning servername security-hardening
 
 COPY docker/000-mod-apex.conf /etc/apache2/sites-available/000-mod-apex.conf
 RUN a2dissite 000-default >/dev/null 2>&1 || true \
     && a2ensite 000-mod-apex
 
-# Smoke-test endpoint (see README.md "Quick Validation").
+# Smoke-test endpoint and a static health endpoint. The health endpoint does
+# not invoke PHP, so a load balancer can distinguish web-server availability
+# from an application-level issue.
 RUN mkdir -p /var/www/html
 COPY test.php /var/www/html/test.php
-RUN chown -R www-data:www-data /var/www/html
+RUN printf 'ok\n' > /var/www/html/healthz \
+    && chown -R www-data:www-data /var/www/html
+
+COPY --chmod=0755 docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint
+
+LABEL org.opencontainers.image.title="PHP Apex" \
+      org.opencontainers.image.description="Apache, PHP 8.4 ZTS, and mod_apex in one container"
 
 EXPOSE 80
 
-# Apache's own foreground entrypoint; child processes drop privileges to
-# www-data (mod_apex's child_init/php_embed_init runs inside those children).
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+    CMD curl --fail --silent http://127.0.0.1/healthz || exit 1
+
+# Apache starts as root only to bind the port and manage workers; workers drop
+# privileges to www-data. The entrypoint validates the generated config first.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint"]
 CMD ["apache2ctl", "-D", "FOREGROUND"]

@@ -1,8 +1,9 @@
-# mod_apex
+# PHP Apex
 
 **Run PHP inside Apache. Skip FastCGI. Keep the event MPM.**
 
-mod_apex embeds a persistent PHP ZTS runtime in each Apache worker thread.
+PHP Apex is powered by `mod_apex`, an Apache module that embeds a persistent
+PHP ZTS runtime in each Apache worker thread.
 Apache accepts the request and runs PHP in the same thread. There is no
 FastCGI socket, no separate FPM queue, and no legacy prefork requirement.
 
@@ -27,7 +28,7 @@ OK
 sapi=apache2handler
 ```
 
-## Why mod_apex
+## Why PHP Apex
 
 - **More direct than PHP-FPM.** PHP runs in the Apache request thread. No
   FastCGI proxy hop. No second request queue.
@@ -71,7 +72,7 @@ latency. Never load non-thread-safe PHP or extensions into mod_apex.
 
 ## Features
 
-- Persistent per-thread PHP (ZTS/embed) runtime, no per-request process fork.
+- PHP stays ready inside Apache, so each request avoids a separate PHP service.
 - OPcache + JIT enabled and working (packaged builds ship JIT on by default:
   `tracing` mode, 128M buffer).
 - Broad bundled extension set: APCu, Redis, Imagick, mbstring,
@@ -79,19 +80,14 @@ latency. Never load non-thread-safe PHP or extensions into mod_apex.
   PDO (sqlite3/mysqli), exif, and xsl. Verify every application's third-party
   extensions are ZTS-safe before deployment.
 - Ships as a Docker image, Debian/Ubuntu `.deb` pair, or Fedora RPM pair.
-  The PHP build paths share the same runtime builder and INI files.
 - Production-conscious defaults: generic (non-leaking) fatal-error pages,
   with an opt-in `ApexVerboseErrors` for local debugging.
-- Compiler/linker hardening applied automatically
-  (`-D_FORTIFY_SOURCE=2 -fstack-protector-strong`, `-Wl,-z,relro -Wl,-z,now`).
 
 ## Requirements
 
 - Apache 2.4 with the threaded `event` MPM.
-- PHP 8.4+ built with `--enable-embed` and either `--enable-zts` or the
-  legacy `--enable-maintainer-zts` spelling.
-- Thread-safe PHP extensions.
-- OPcache for production performance.
+- The matching `php-zts-full` package supplied with mod_apex.
+- Enough memory for your PHP application and its active requests.
 
 ## License
 
@@ -99,259 +95,69 @@ latency. Never load non-thread-safe PHP or extensions into mod_apex.
 -- free to use and modify internally, redistribution not permitted -- see
 [LICENSE](LICENSE).
 
-## Installation
+## Install PHP Apex on your server
 
-Pick one path:
+Use the two matching packages supplied with mod_apex. They include PHP and
+the mod_apex Apache module, so you do not need to build PHP or compile C code.
 
-- **Docker/Podman:** fastest test. No host Apache changes.
-- **Debian/Ubuntu or Fedora packages:** easiest server install.
-- **Source build:** best for mod_apex development.
+### Debian or Ubuntu
 
-Every server path uses the same order: install PHP ZTS, disable conflicting
-mod_php, enable `mpm_event`, install mod_apex, map `.php`, validate, restart.
-
-### Option A: Docker
-
-Self-contained Apache + PHP (ZTS/embed, OPcache+JIT) + mod_apex, built
-entirely from source in a multi-stage build ([Dockerfile](Dockerfile)).
-The same image works with Docker or Podman. Rootless user IDs, SELinux bind
-mount labels, and host networking can still differ between the two engines.
-
-**Quick start:**
-
-```sh
-docker build -t mod-apex .
-docker run --rm -d --name mod-apex-demo -p 8080:80 mod-apex
-curl -sS http://127.0.0.1:8080/test.php
-docker stop mod-apex-demo
-```
-
-The first run uses the built-in [test.php](test.php). After it passes, mount
-an existing application directory at `/var/www/html`:
+Copy both `.deb` files to the server, then run:
 
 ```bash
-docker run --rm -p 8080:80 -v "$PWD/app:/var/www/html:ro" mod-apex
-```
-
-The host `app/` directory must exist. A bind mount replaces the image's
-built-in document root, including its smoke page.
-
-**Podman:** no rootless-specific changes are needed --
-
-```sh
-podman build -t mod-apex .
-podman run --rm -d --name mod-apex-demo -p 8080:80 mod-apex
-curl -sS http://127.0.0.1:8080/test.php
-podman stop mod-apex-demo
-```
-
-The image still runs Apache as root internally (worker processes drop
-privileges to `www-data`, same as a normal package install), which
-`podman run` maps the same way `docker run` does.
-
-**Customizing the PHP build:** PHP/extension versions are `ARG`s at the top
-of the [Dockerfile](Dockerfile), overridable at build time:
-
-```sh
-docker build \
-  --build-arg PHP_VERSION=8.4.21 \
-  --build-arg APCU_VERSION=5.1.24 \
-  --build-arg REDIS_VERSION=6.1.0 \
-  --build-arg IMAGICK_VERSION=3.8.1 \
-  -t mod-apex .
-```
-
-**Apache/PHP config baked into the image:** [docker/](docker) holds the
-exact files `COPY`'d in --
-[docker/apex.conf](docker/apex.conf) (mod_apex + `ApexVerboseErrors`),
-[docker/mpm_event.conf](docker/mpm_event.conf) (event MPM tuning),
-[docker/keepalive-tuning.conf](docker/keepalive-tuning.conf),
-[docker/servername.conf](docker/servername.conf),
-[docker/security-hardening.conf](docker/security-hardening.conf), and
-[docker/000-mod-apex.conf](docker/000-mod-apex.conf) (the default vhost).
-`php.ini`/OPcache/APCu/Redis/Imagick settings come from
-[packaging/php-ini](packaging/php-ini), installed to
-`/usr/local/php-zts/etc/conf.d/` during the build. Changing any of these
-requires editing the file and rebuilding the image, or overriding one at
-`docker run` time with a bind mount, e.g.
-`-v "$PWD/packaging/php-ini/opcache.ini:/usr/local/php-zts/etc/conf.d/10-opcache.ini:ro"`.
-
-**Logs:** the container's `CMD` runs Apache in the foreground
-(`apache2ctl -D FOREGROUND`). Request access and error logs are files inside
-the container under `/var/log/apache2/`; `docker logs` mainly shows Apache's
-foreground process output:
-
-```sh
-docker exec <container> tail -f /var/log/apache2/error.log
-docker exec <container> tail -f /var/log/apache2/access.log
-```
-
-### Option B: Server packages
-
-Use packages when you want a repeatable server install without compiling
-mod_apex on the target host.
-
-On an existing Apache server, read [Server setup](#server-setup) before
-enabling mod_apex. Install PHP ZTS first, then disable conflicting handlers,
-enable `mpm_event`, and install/enable mod_apex.
-
-**Debian or Ubuntu:** install the PHP ZTS package first, then mod_apex:
-
-```bash
-sudo dpkg -i dist/php-zts-full_*.deb
+sudo dpkg -i php-zts-full_*.deb
 sudo apt-get -f install
 sudo a2dismod php8.4 || true
 sudo a2disconf php8.4-fpm || true
 sudo a2dismod mpm_prefork || true
 sudo a2enmod mpm_event
-sudo dpkg -i dist/mod-apex_*.deb
+sudo dpkg -i mod-apex_*.deb
 ```
 
-Match `php8.4` to the distro PHP version. The package enables mod_apex, so
-disable conflicting handlers before installing it.
+Replace `php8.4` with your installed distro PHP version if it differs.
 
-Building PHP requires these Debian/Ubuntu dependencies:
+### Fedora
+
+Copy both RPM files to the server, then run:
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y build-essential autoconf automake libtool pkg-config \
-  curl ca-certificates apache2-dev libxml2-dev libssl-dev \
-  libcurl4-openssl-dev zlib1g-dev libsqlite3-dev libonig-dev libicu-dev \
-  libzip-dev libxslt1-dev libfreetype6-dev libjpeg62-turbo-dev \
-  libwebp-dev libpng-dev libsodium-dev libgmp-dev libmagickwand-dev dpkg-dev
+sudo dnf install php-zts-full-*.rpm
+sudo dnf install mod_apex-*.rpm
 ```
 
-To create both packages from a clone, build inside the exact target distro
-and release; PHP's linked library versions differ between releases:
+Fedora calls Apache `httpd` rather than `apache2`. Use `httpd` in the service
+commands below.
+
+### Quick local test with Docker or Podman
+
+Want to see mod_apex before changing a server? Build and run the included
+image:
 
 ```bash
-sudo ./tools/build_php_zts_deb.sh
-sudo ./tools/build_deb.sh
+docker pull practicalwebuser/mod_apex-apache:php8.4
+docker run --rm -d --name mod-apex-demo -p 8080:80 practicalwebuser/mod_apex-apache:php8.4
+curl -sS http://127.0.0.1:8080/test.php
+docker stop mod-apex-demo
 ```
 
-To install the runtime directly instead of creating its package:
+Use `podman` instead of `docker` if that is what your server uses.
+For application mounts, resource limits, reverse-proxy setup, and tuning,
+read [DOCKER.md](DOCKER.md).
+
+## Set up Apache
+
+### 1. Make Apache use mod_apex for PHP
+
+The install commands above turn off the old PHP handler and turn on Apache's
+modern request mode. Run these again only if another package has turned the
+old handler back on:
 
 ```bash
-sudo ./packaging/build-php-zts.sh
-```
-
-The PHP build scripts download and compile PHP and its extensions. They do
-not install operating-system build dependencies for you.
-
-The mod_apex package installs `/usr/lib/apache2/modules/mod_apex.so`, creates
-`/etc/apache2/mods-available/apex.load`, and enables the module.
-
-Alternatively, copy the `.so` and load file manually if you're not on a
-`.deb`-based system:
-
-```bash
-sudo cp mod_apex.so /usr/lib/apache2/modules/mod_apex.so
-sudo tee /etc/apache2/mods-available/apex.load >/dev/null <<'EOF'
-LoadFile /usr/local/php-zts/lib/libphp.so
-LoadModule apex_module /usr/lib/apache2/modules/mod_apex.so
-EOF
-sudo a2enmod apex
-```
-
-**Fedora:** install the RPM pair in this order. Use the architecture directory
-that the build produced (`x86_64` is only an example):
-
-```bash
-sudo dnf install ./dist/rpmbuild/RPMS/x86_64/php-zts-full-*.rpm
-sudo dnf install ./dist/rpmbuild/RPMS/x86_64/mod_apex-*.rpm
-```
-
-This installs PHP ZTS to `/usr/local/php-zts`, drops
-`/usr/lib64/httpd/modules/mod_apex.so`, and enables it via
-`/etc/httpd/conf.modules.d/10-mod_apex.conf` +
-`/etc/httpd/conf.d/mod_apex.conf`.
-
-Build the PHP RPM on Fedora, install it so `rpmbuild` can satisfy mod_apex's
-build requirement, then build mod_apex:
-
-```bash
-./tools/build_rpm.sh php-zts-full
-sudo dnf install ./dist/rpmbuild/RPMS/*/php-zts-full-*.rpm
-./tools/build_rpm.sh mod_apex
-```
-
-See [packaging/rpm](packaging/rpm) for the specs. RHEL may require additional
-repositories and different development-package availability; it is not a
-documented build target yet.
-
-Fedora uses `httpd` instead of Debian's `apache2`: validate with
-`sudo httpd -t`, restart with `sudo systemctl restart httpd`, and inspect
-modules with `sudo httpd -M`.
-
-### Option C: Build mod_apex from source
-
-First install PHP ZTS under `/usr/local/php-zts`. The dependency list in
-Option B is the Debian/Ubuntu starting point; package names differ on other
-distributions. Then build mod_apex without changing the server:
-
-```bash
-INSTALL_MODE=never ./build-install.sh
-```
-
-Expected artifact: `.libs/mod_apex.so`. Install it after the build passes:
-
-```bash
-sudo INSTALL_MODE=always ./build-install.sh
-```
-
-Custom PHP prefix:
-
-```bash
-sudo PHP_PREFIX=/opt/php-zts \
-  PHP_CONFIG=/opt/php-zts/bin/php-config \
-  INSTALL_MODE=always ./build-install.sh
-```
-
-Manual fallback:
-
-```bash
-apxs -c -i -a mod_apex.c -lphp \
-  -L/usr/local/php-zts/lib \
-  -I/usr/local/php-zts/include/php
-```
-
-Whichever source path you use, Apache must load the nonstandard PHP library
-before the module. Confirm the enabled module file contains this order:
-
-```apache
-LoadFile /usr/local/php-zts/lib/libphp.so
-LoadModule apex_module /usr/lib/apache2/modules/mod_apex.so
-```
-
-The automated install adds `LoadFile` to an existing Debian-style
-`/etc/apache2/mods-available/apex.load`. On another layout, add both lines to
-the server's module configuration yourself before running `apachectl -t`.
-
-## Server setup
-
-### 1. Disable conflicting PHP handlers
-
-Most distros ship PHP built **NTS (Non Thread Safe)** -- fine for
-single-threaded `prefork`/CGI/FPM use, but unsafe to load into Apache's
-threaded `event` MPM, which is why mod_apex requires its own separate
-**ZTS (Zend Thread Safe)** build instead. The distro's NTS build shows up in
-two places that both need to be disabled so they don't fight mod_apex for
-the `.php` handler or keep Apache pinned to `prefork`:
-
-```bash
-# Disable mod_php (NTS, tied to prefork) and force the threaded event MPM
-# mod_apex requires
 sudo a2dismod php8.4 || true          # match your installed PHP version
-sudo a2disconf php8.4-fpm || true     # remove Apache's FPM handler mapping
+sudo a2disconf php8.4-fpm || true
 sudo a2dismod mpm_prefork || true
 sudo a2enmod mpm_event
-
-# If a distro php-fpm service (also NTS) is running and not otherwise in
-# use, stop it
 sudo systemctl disable --now php8.4-fpm || true
-
-sudo apachectl -t
-sudo systemctl restart apache2
 ```
 
 Verify only mod_apex is serving PHP afterward:
@@ -359,18 +165,6 @@ Verify only mod_apex is serving PHP afterward:
 ```bash
 sudo apachectl -M | grep -E 'apex_module|mpm_event_module|php_module'
 # expect: apex_module and mpm_event_module present, php_module absent
-```
-
-The distro's NTS **`php` CLI binary** itself is unaffected by the above --
-it stays installed (used by cron jobs, composer, CLI scripts, etc.) and
-that's fine, since it never loads into Apache. If you need to make the ZTS
-build your default `php` on the CLI too (or just want to avoid ambiguity
-about which `php` a script picks up):
-
-```bash
-sudo update-alternatives --config php
-# or bypass alternatives entirely and call the ZTS binary directly:
-/usr/local/php-zts/bin/php -v
 ```
 
 ### 2. Map PHP requests
@@ -390,8 +184,8 @@ Add this to the vhost or an enabled Apache configuration file:
 ### 3. Validate, restart, test
 
 These commands use Debian/Ubuntu names and the default document root. On
-Fedora, substitute `httpd` for `apache2`/`apachectl` as described in
-Option B. Adjust `/var/www/html` if your vhost uses another document root.
+Fedora, substitute `httpd` for `apache2`/`apachectl`. Adjust `/var/www/html`
+if your vhost uses another document root.
 
 ```bash
 sudo apachectl -t
@@ -646,23 +440,20 @@ Same-host `wrk` steals CPU from Apache.
 ## Troubleshooting
 
 **Module fails to load / `apachectl -t` errors on `LoadFile`/`LoadModule`:**
-Confirm `LoadFile /usr/local/php-zts/lib/libphp.so` points at the actual
-install prefix (`PREFIX` at build time, `/usr/local/php-zts` by default) and
-that the file exists -- a mismatched prefix (e.g. built with a custom
-`PREFIX` but the config still points at the default) is the most common
-cause.
+Confirm both mod_apex packages are installed, then check that
+`/usr/local/php-zts/lib/libphp.so` and the module file named in Apache's
+message exist. Reinstall the matching package pair if either one is missing.
 
 **Error log shows `mod_apex: requires a threaded MPM; skipping PHP engine
-init in this process`:** `mpm_prefork` is still active instead of
-`mpm_event`. Run through
-[Server setup](#server-setup)
-again and confirm with `sudo apachectl -M | grep mpm`.
+init in this process`:** Apache is still using its old request mode. Repeat
+[Make Apache use mod_apex for PHP](#1-make-apache-use-mod_apex-for-php), then
+run `sudo apachectl -M | grep mpm`.
 
 **`.php` requests return 500, or the error log shows `mod_apex: expected PHP
 handler mapping is 'php-script' or 'application/x-httpd-php'`:** the
 `<FilesMatch \.php$>` block routing to `SetHandler php-script` is missing or
-was overridden by another vhost/`.htaccess`. See [httpd.conf](httpd.conf) or
-[docker/apex.conf](docker/apex.conf) for the expected block.
+was overridden by another vhost/`.htaccess`. Add it again from
+[Map PHP requests](#2-map-php-requests).
 
 **Error log shows `mod_apex: php_embed_init() failed in child_init`:** PHP's
 own startup failed (bad `php.ini` directive, an extension that failed to
@@ -677,11 +468,9 @@ more detailed error:
 ```
 
 **`opcache_get_status()` returns `false` / no OPcache speedup observed:**
-means PHP is running under the stock `"embed"` SAPI name instead of the
-`"apache2handler"` override `apex_post_config` sets -- see the "Known
-Pitfalls" entry in [AGENTS.md](AGENTS.md) for the full explanation. Confirm
-with `php_sapi_name()` in a request (see [test.php](test.php)) -- it should print
-`apache2handler`, not `embed`.
+first confirm you are testing through Apache, not the PHP command line. Use
+the web check in [OPcache](#opcache): it should show
+`sapi=apache2handler` and `opcache=on`.
 
 **Fatal errors show a generic message instead of details, even locally:**
 this is intentional (`ApexVerboseErrors` defaults to `Off` to avoid leaking
@@ -690,8 +479,7 @@ the vhost/`<IfModule apex_module>` block, reproduce, then set it back to
 `Off` before shipping -- never leave it `On` in production.
 
 **Distro PHP (`mod_php`/`php-fpm`) still seems to be handling requests:**
-re-run
-[Server setup](#server-setup)
+repeat [Make Apache use mod_apex for PHP](#1-make-apache-use-mod_apex-for-php)
 and verify with:
 
 ```bash
@@ -703,6 +491,6 @@ sudo apachectl -M | grep -E 'apex_module|mpm_event_module|php_module'
 
 ```bash
 sudo apachectl -M                              # confirm loaded modules
-curl -sS http://127.0.0.1/test.php             # confirm SAPI + basic response
+curl -sS http://127.0.0.1/your-check.php       # confirm your PHP site responds
 sudo tail -f /var/log/apache2/error.log         # watch startup/request errors live
 ```
