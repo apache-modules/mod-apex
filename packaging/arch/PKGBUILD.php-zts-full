@@ -1,0 +1,38 @@
+# Maintained for private package releases. The PolyForm Internal Use license
+# does not permit publishing this package to the public AUR.
+pkgname=php-zts-full
+pkgver=8.4.21
+pkgrel=1
+pkgdesc='PHP ZTS embed runtime with OPcache, JIT, and common web extensions for PHP Apex'
+arch=('x86_64')
+url='https://github.com/practicalwebuser/mod_apex'
+license=('custom:PolyForm-Internal-Use-1.0.0')
+# PHP's ZTS VM uses GCC global register variables. Arch's default LTO cannot
+# compile that code reliably; Fedora's php package makes the same exception.
+options=('!lto')
+depends=('curl' 'freetype2' 'gmp' 'icu' 'imagemagick' 'libjpeg-turbo'
+         'libpng' 'libsodium' 'libwebp' 'libxml2' 'libxslt' 'libzip'
+         'oniguruma' 'openssl' 'sqlite' 'zlib')
+makedepends=('apache' 'autoconf' 'automake' 'base-devel' 'ca-certificates'
+             'curl' 'freetype2' 'gmp' 'icu' 'imagemagick' 'libjpeg-turbo'
+             'libpng' 'libsodium' 'libtool' 'libwebp' 'libxml2' 'libxslt'
+             'libzip' 'oniguruma' 'openssl' 'pkgconf' 'sqlite' 'zlib')
+source=("${pkgname}-${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+    PREFIX=/usr/local/php-zts \
+    PACKAGE_BUILD_ROOT="${srcdir}/package-root" \
+    SRC_DIR="${srcdir}/sources" \
+    JOBS="$(nproc)" \
+        ./packaging/build-php-zts.sh
+}
+
+package() {
+    install -d "${pkgdir}/usr/local/php-zts"
+    cp -a "${srcdir}/package-root/usr/local/php-zts/." \
+        "${pkgdir}/usr/local/php-zts/"
+    install -D -m 0644 LICENSE \
+        "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

@@ -1,0 +1,47 @@
+# Maintained for private package releases. The PolyForm Internal Use license
+# does not permit publishing this package to the public AUR.
+pkgname=mod-apex
+pkgver=0.1.6
+pkgrel=1
+pkgdesc='Apache module that embeds a persistent PHP ZTS runtime in event-MPM workers'
+arch=('x86_64')
+url='https://github.com/practicalwebuser/mod_apex'
+license=('custom:PolyForm-Internal-Use-1.0.0')
+depends=('apache' 'php-zts-full')
+makedepends=('apache' 'base-devel' 'libarchive')
+source=("${pkgname}-${pkgver}.tar.gz" 'php-zts-full.pkg.tar.zst')
+sha256sums=('SKIP' 'SKIP')
+
+prepare() {
+    rm -rf "${srcdir}/php-zts-build"
+    mkdir -p "${srcdir}/php-zts-build"
+    bsdtar -xf "${srcdir}/php-zts-full.pkg.tar.zst" \
+        -C "${srcdir}/php-zts-build"
+
+    local final_prefix='/usr/local/php-zts'
+    local build_prefix="${srcdir}/php-zts-build${final_prefix}"
+    cp "${build_prefix}/bin/php-config" "${srcdir}/php-config-for-build"
+    sed -i "s#${final_prefix}#${build_prefix}#g" \
+        "${srcdir}/php-config-for-build"
+    chmod +x "${srcdir}/php-config-for-build"
+}
+
+build() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+    PHP_PREFIX="${srcdir}/php-zts-build/usr/local/php-zts" \
+    PHP_CONFIG="${srcdir}/php-config-for-build" \
+    INSTALL_MODE=never \
+        ./build-install.sh
+}
+
+package() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+    install -D -m 0755 .libs/mod_apex.so \
+        "${pkgdir}/usr/lib/httpd/modules/mod_apex.so"
+    install -D -m 0644 packaging/arch/10-mod_apex.conf \
+        "${pkgdir}/etc/httpd/conf.modules.d/10-mod_apex.conf"
+    install -D -m 0644 packaging/arch/mod_apex.conf \
+        "${pkgdir}/etc/httpd/conf/extra/mod_apex.conf"
+    install -D -m 0644 LICENSE \
+        "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

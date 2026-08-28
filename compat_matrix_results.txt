@@ -1,2 +1,0 @@
-APP            VERDICT   RPS       P99       READ_ERR  NON2XX    CRASH_DELTA
-wordpress      PASS      190.29    944.66ms  0         0         0

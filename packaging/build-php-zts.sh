@@ -23,6 +23,9 @@ Environment:
   PREFIX          Install prefix (default: /usr/local/php-zts)
   DESTDIR         Staged install root prepended to PREFIX, for packaging
                   (default: empty -- installs directly to PREFIX)
+  PACKAGE_BUILD_ROOT
+                  Temporary physical install root for unprivileged package
+                  builds. PHP still keeps PREFIX as its final runtime path.
   PHP_VERSION     PHP release to build (default: 8.4.21)
   APCU_VERSION    APCu PECL release (default: 5.1.24)
   REDIS_VERSION   phpredis PECL release (default: 6.1.0)
@@ -37,6 +40,7 @@ Environment:
 Examples:
   ./packaging/build-php-zts.sh
   DESTDIR=/tmp/stage ./packaging/build-php-zts.sh
+  PACKAGE_BUILD_ROOT=/tmp/package-root ./packaging/build-php-zts.sh
 EOF
 }
 
@@ -47,6 +51,7 @@ fi
 
 PREFIX="${PREFIX:-/usr/local/php-zts}"
 DESTDIR="${DESTDIR:-}"
+PACKAGE_BUILD_ROOT="${PACKAGE_BUILD_ROOT:-}"
 PHP_VERSION="${PHP_VERSION:-8.4.21}"
 APCU_VERSION="${APCU_VERSION:-5.1.24}"
 REDIS_VERSION="${REDIS_VERSION:-6.1.0}"
@@ -56,6 +61,21 @@ JOBS="${JOBS:-$(nproc)}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INI_DIR="$SCRIPT_DIR/php-ini"
+
+if [[ -n "$PACKAGE_BUILD_ROOT" && "$PACKAGE_BUILD_ROOT" != /* ]]; then
+    echo "error: PACKAGE_BUILD_ROOT must be an absolute path" >&2
+    exit 1
+fi
+
+physical_prefix() {
+    if [[ -n "$PACKAGE_BUILD_ROOT" ]]; then
+        printf '%s%s' "$PACKAGE_BUILD_ROOT" "$PREFIX"
+    else
+        printf '%s' "$PREFIX"
+    fi
+}
+
+PHYSICAL_PREFIX="$(physical_prefix)"
 
 for cmd in curl tar make gcc; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -69,9 +89,9 @@ done
 # with an actionable message instead of a confusing mid-build permission
 # error if that isn't writable (typically means: run this as root/sudo, or
 # in a container/chroot, when PREFIX lives under /usr or /usr/local).
-mkdir -p "$(dirname "$PREFIX")" 2>/dev/null || true
-if [[ ! -w "$(dirname "$PREFIX")" ]] && [[ "$(id -u)" -ne 0 ]]; then
-    echo "error: $(dirname "$PREFIX") is not writable by $(id -un)." >&2
+mkdir -p "$(dirname "$PHYSICAL_PREFIX")" 2>/dev/null || true
+if [[ ! -w "$(dirname "$PHYSICAL_PREFIX")" ]] && [[ "$(id -u)" -ne 0 ]]; then
+    echo "error: $(dirname "$PHYSICAL_PREFIX") is not writable by $(id -un)." >&2
     echo "PHP + PECL extensions must be installed for real to \$PREFIX during the" >&2
     echo "build (phpize/php-config need it to exist there, not just under \$DESTDIR)." >&2
     echo "Re-run as root/sudo, or in a container/chroot." >&2
@@ -137,14 +157,34 @@ cd "php-${PHP_VERSION}"
     --with-gmp
 
 make -j"$JOBS"
-make install
+if [[ -n "$PACKAGE_BUILD_ROOT" ]]; then
+    make install DESTDIR="$PACKAGE_BUILD_ROOT"
+else
+    make install
+fi
 
-mkdir -p "$PREFIX/etc/conf.d"
-cp php.ini-production "$PREFIX/etc/php.ini"
-cp "$INI_DIR/opcache.ini" "$PREFIX/etc/conf.d/10-opcache.ini"
+mkdir -p "$PHYSICAL_PREFIX/etc/conf.d"
+cp php.ini-production "$PHYSICAL_PREFIX/etc/php.ini"
+cp "$INI_DIR/opcache.ini" "$PHYSICAL_PREFIX/etc/conf.d/10-opcache.ini"
 
-PHP_CONFIG="$PREFIX/bin/php-config"
-PHPIZE="$PREFIX/bin/phpize"
+PHP_CONFIG="$PHYSICAL_PREFIX/bin/php-config"
+PHPIZE="$PHYSICAL_PREFIX/bin/phpize"
+
+# php-config and phpize embed the final PREFIX. During an unprivileged package
+# build those final paths do not exist yet, so use private, temporary copies
+# that point at the staged tree only while compiling PECL extensions. The
+# installed scripts remain untouched and continue to advertise PREFIX.
+if [[ -n "$PACKAGE_BUILD_ROOT" ]]; then
+    TOOL_DIR="$SRC_DIR/.php-zts-package-tools"
+    mkdir -p "$TOOL_DIR"
+    cp "$PHP_CONFIG" "$TOOL_DIR/php-config"
+    cp "$PHPIZE" "$TOOL_DIR/phpize"
+    sed -i "s#${PREFIX}#${PHYSICAL_PREFIX}#g" \
+        "$TOOL_DIR/php-config" "$TOOL_DIR/phpize"
+    chmod +x "$TOOL_DIR/php-config" "$TOOL_DIR/phpize"
+    PHP_CONFIG="$TOOL_DIR/php-config"
+    PHPIZE="$TOOL_DIR/phpize"
+fi
 
 build_pecl_extension() {
     local name="$1" version="$2" ini_file="$3" ini_priority="$4"
@@ -161,7 +201,7 @@ build_pecl_extension() {
     ./configure --with-php-config="$PHP_CONFIG"
     make -j"$JOBS"
     make install
-    cp "$INI_DIR/$ini_file" "$PREFIX/etc/conf.d/${ini_priority}-${ini_file}"
+    cp "$INI_DIR/$ini_file" "$PHYSICAL_PREFIX/etc/conf.d/${ini_priority}-${ini_file}"
 }
 
 # APCu: user-space object/data cache, used by all three target frameworks'
@@ -180,11 +220,11 @@ build_pecl_extension "imagick" "$IMAGICK_VERSION" "imagick.ini" "22"
 if [[ -n "$DESTDIR" ]]; then
     echo "==> Staging $PREFIX into $(stage_root)"
     mkdir -p "$(stage_root)"
-    cp -a "$PREFIX/." "$(stage_root)/"
+    cp -a "$PHYSICAL_PREFIX/." "$(stage_root)/"
 fi
 
 echo "==> PHP ZTS build complete: $(stage_root)"
-if [[ -z "$DESTDIR" ]]; then
+if [[ -z "$DESTDIR" && -z "$PACKAGE_BUILD_ROOT" ]]; then
     "$PREFIX/bin/php" -v
     "$PREFIX/bin/php" -m
 fi

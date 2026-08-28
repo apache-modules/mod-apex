@@ -15,8 +15,8 @@ mod_apex: client -> Apache worker -> PHP
 Try it without changing your server:
 
 ```bash
-docker build -t mod-apex .
-docker run --rm -d --name mod-apex-demo -p 8080:80 mod-apex
+docker pull practicalwebuser/mod_apex-apache:php8.4
+docker run --rm -d --name mod-apex-demo -p 8080:80 practicalwebuser/mod_apex-apache:php8.4
 curl -sS http://127.0.0.1:8080/test.php
 docker stop mod-apex-demo
 ```
@@ -79,14 +79,15 @@ latency. Never load non-thread-safe PHP or extensions into mod_apex.
   intl, zip, bcmath, soap, GD, sodium, gmp, curl, openssl, zlib, sqlite3,
   PDO (sqlite3/mysqli), exif, and xsl. Verify every application's third-party
   extensions are ZTS-safe before deployment.
-- Ships as a Docker image, Debian/Ubuntu `.deb` pair, or Fedora RPM pair.
+- Ships as a Docker image, Debian/Ubuntu `.deb` pair, Fedora RPM pair, or
+  Arch Linux package pair.
 - Production-conscious defaults: generic (non-leaking) fatal-error pages,
   with an opt-in `ApexVerboseErrors` for local debugging.
 
 ## Requirements
 
 - Apache 2.4 with the threaded `event` MPM.
-- The matching `php-zts-full` package supplied with mod_apex.
+- The matching `php-zts-full` package supplied with PHP Apex.
 - Enough memory for your PHP application and its active requests.
 
 ## License
@@ -97,40 +98,52 @@ latency. Never load non-thread-safe PHP or extensions into mod_apex.
 
 ## Install PHP Apex on your server
 
-Use the two matching packages supplied with mod_apex. They include PHP and
-the mod_apex Apache module, so you do not need to build PHP or compile C code.
+Download the two matching package files from your private PHP Apex release
+location. One file provides PHP ZTS and its complete extension set; the other
+provides the Apache module. Install both together. You do not need to compile
+PHP or C code on the server.
 
 ### Debian or Ubuntu
 
-Copy both `.deb` files to the server, then run:
+Copy the matching `.deb` files to the server, then run:
 
 ```bash
-sudo dpkg -i php-zts-full_*.deb
-sudo apt-get -f install
-sudo a2dismod php8.4 || true
-sudo a2disconf php8.4-fpm || true
-sudo a2dismod mpm_prefork || true
-sudo a2enmod mpm_event
-sudo dpkg -i mod-apex_*.deb
+sudo apt install ./php-zts-full_*.deb ./mod-apex_*.deb
 ```
-
-Replace `php8.4` with your installed distro PHP version if it differs.
 
 ### Fedora
 
-Copy both RPM files to the server, then run:
+Copy the matching RPM files to the server, then run:
 
 ```bash
-sudo dnf install php-zts-full-*.rpm
-sudo dnf install mod_apex-*.rpm
+sudo dnf install ./php-zts-full-*.rpm ./mod-apex-*.rpm
 ```
 
-Fedora calls Apache `httpd` rather than `apache2`. Use `httpd` in the service
-commands below.
+### Arch Linux
 
-### Quick local test with Docker or Podman
+Copy the matching package files to the server, then run:
 
-Want to see mod_apex before changing a server? Build and run the included
+```bash
+sudo pacman -U ./php-zts-full-*.pkg.tar.zst ./mod-apex-*.pkg.tar.zst
+```
+
+Arch calls Apache `httpd` rather than `apache2`. Use `httpd` in the service
+commands below. After installation, include
+`/etc/httpd/conf/extra/mod_apex.conf` from your Apache configuration.
+
+### Last option: build only the Apache module
+
+Use this only when you already have a compatible PHP ZTS embed runtime at
+`/usr/local/php-zts`, including the PHP extensions your application needs. It
+builds and installs `mod_apex`; it does not build PHP itself.
+
+```bash
+sudo INSTALL_MODE=always ./build-install.sh
+```
+
+### Use the Docker Hub image
+
+Want to try PHP Apex before changing a server? Pull and run the published
 image:
 
 ```bash
@@ -146,11 +159,11 @@ read [DOCKER.md](DOCKER.md).
 
 ## Set up Apache
 
-### 1. Make Apache use mod_apex for PHP
+### 1. Make Apache use PHP Apex for PHP
 
-The install commands above turn off the old PHP handler and turn on Apache's
-modern request mode. Run these again only if another package has turned the
-old handler back on:
+On Debian or Ubuntu, turn off the old PHP handler and turn on Apache's modern
+request mode. Run these again only if another package has turned the old
+handler back on:
 
 ```bash
 sudo a2dismod php8.4 || true          # match your installed PHP version
@@ -158,6 +171,13 @@ sudo a2disconf php8.4-fpm || true
 sudo a2dismod mpm_prefork || true
 sudo a2enmod mpm_event
 sudo systemctl disable --now php8.4-fpm || true
+```
+
+Fedora loads the supplied PHP Apex configuration from `/etc/httpd/conf.d/`.
+On Arch, add this line to Apache's `/etc/httpd/conf/httpd.conf` once:
+
+```apache
+Include conf/extra/mod_apex.conf
 ```
 
 Verify only mod_apex is serving PHP afterward:
@@ -184,8 +204,8 @@ Add this to the vhost or an enabled Apache configuration file:
 ### 3. Validate, restart, test
 
 These commands use Debian/Ubuntu names and the default document root. On
-Fedora, substitute `httpd` for `apache2`/`apachectl`. Adjust `/var/www/html`
-if your vhost uses another document root.
+Fedora or Arch, substitute `httpd` for `apache2`/`apachectl`. Adjust
+`/var/www/html` if your vhost uses another document root.
 
 ```bash
 sudo apachectl -t
