@@ -551,12 +551,12 @@ workers.
 
 ## License
 
-PHP Apex is licensed under the [Apache License 2.0](LICENSE). You may use,
+PHP Apex is licensed under the [GPLv3](LICENSE). You may use,
 modify, and redistribute it under that license. Modified files must be clearly
 identified, and the required copyright, license, and attribution notices must
 be retained.
 
-The Apache License 2.0 does not grant permission to use the PHP Apex product
+The GPLv3 does not grant permission to use the PHP Apex product
 name or branding to imply that a modified or third-party build is an official
 release or is endorsed by the PHP Apex maintainers. Descriptive references to
 the project's origin remain permitted by the license.
