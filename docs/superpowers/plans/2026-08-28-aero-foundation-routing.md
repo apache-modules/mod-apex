@@ -89,20 +89,24 @@ Run:
 
 ```bash
 test -d /home/bode/sites/mod_apex/.git
-test ! -e /home/bode/sites/mod_aero
+if [[ -e /home/bode/sites/mod_aero ]]; then
+  [[ -d /home/bode/sites/mod_aero ]]
+  [[ -z "$(find /home/bode/sites/mod_aero -mindepth 1 -maxdepth 1 -print -quit)" ]]
+fi
 git -C /home/bode/sites/mod_apex status --short
 ```
 
-Expected: the Apex repository exists, the Aero path does not exist, and the
-last command records any pre-existing Apex work that must remain untouched.
-Stop if `/home/bode/sites/mod_aero` already exists; do not overwrite it.
+Expected: the Apex repository exists; the Aero path is either absent or an
+empty directory; and the last command records any pre-existing Apex work that
+must remain untouched. Stop if the Aero path contains any file or Git history;
+do not overwrite it.
 
 - [ ] **Step 2: Initialize the independent Aero repository**
 
 Run:
 
 ```bash
-mkdir /home/bode/sites/mod_aero
+mkdir -p /home/bode/sites/mod_aero
 git -C /home/bode/sites/mod_aero init -b main
 mkdir -p /home/bode/sites/mod_aero/docs/superpowers/specs
 mkdir -p /home/bode/sites/mod_aero/docs/superpowers/plans
