@@ -11,9 +11,9 @@ Run modern PHP applications with one web service and no separate PHP-FPM
 process pool. Keep Apache's event MPM without going back to legacy prefork
 mod_php.
 
-The image starts with a WordPress-tested 128-worker profile and replaces each
-Apache child after 1,000 connections, keeping sustained application traffic
-within a controlled memory envelope.
+The image starts with a balanced 128-worker profile and replaces each Apache
+child after 1,000 connections to limit retained per-thread memory growth.
+Set an external container memory limit for a firm boundary.
 
 ## Everything included
 
@@ -30,7 +30,7 @@ extensions already together:
 - Imagick and GD with JPEG, PNG, WebP, and FreeType support
 - curl, mbstring, intl, fileinfo, EXIF, BCMath, GMP, sodium, SOAP, XML,
   SimpleXML, XMLReader, XMLWriter, XSL, and ZIP
-- WordPress-tested Apache defaults with a 128-worker limit
+- balanced Apache defaults with a 128-worker limit
 - hardened Apache defaults, container-friendly logs, and `/healthz`
 
 The runtime uses Debian Bookworm Slim. Compilers and build tools are not kept
@@ -49,6 +49,10 @@ docker run -d --name my-php-app \
 
 Open `http://your-server:8080`. Your application belongs in `./app`.
 
+The example mounts application code read-only. If your application writes
+uploads, cache files, or generated content, mount only those directories as
+separate writable volumes.
+
 ## Why PHP Apex
 
 - **One container, one request path.** Apache receives the request and runs
@@ -60,13 +64,13 @@ Open `http://your-server:8080`. Your application belongs in `./app`.
 - **Bring popular PHP applications.** The image includes OPcache, APCu,
   Redis, Imagick, curl, mbstring, intl, GD, PDO/MySQL, SQLite, zip, sodium,
   GMP, SOAP, XSL, and more.
-- **Container-friendly by default.** The image starts with the validated
+- **Container-friendly by default.** The image starts with the balanced
   128-worker profile, sends logs to `docker logs`, and includes `/healthz`.
 
 ## Run it confidently
 
 Set CPU and memory limits with your container platform. PHP Apex keeps its
-WordPress-safe 128-worker default unless you explicitly set
+balanced 128-worker default unless you explicitly set
 `APEX_MAX_REQUEST_WORKERS`. For a 4-CPU, 2 GB container, start with:
 
 ```bash
@@ -75,6 +79,21 @@ docker run -d --name my-php-app \
   -p 8080:80 \
   practicalwebuser/mod_apex-apache:php8.4
 ```
+
+To deliberately change the Apache worker limit, set a whole number from 64 to
+512:
+
+```bash
+docker run -d --name my-php-app \
+  --cpus=4 --memory=2g \
+  -e APEX_MAX_REQUEST_WORKERS=256 \
+  -p 8080:80 \
+  -v "$(pwd)/app:/var/www/html:ro" \
+  practicalwebuser/mod_apex-apache:php8.4
+```
+
+Start with 128 and raise it only after measuring your application's memory use
+and latency under representative traffic.
 
 Check availability without invoking PHP:
 

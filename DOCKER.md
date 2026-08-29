@@ -18,7 +18,7 @@ most WordPress, Drupal, Symfony, and custom PHP applications commonly need.
 - **Application extensions:** curl, mbstring, intl, fileinfo, EXIF, BCMath,
   GMP, sodium, SOAP, XML, SimpleXML, XMLReader, XMLWriter, XSL, and ZIP.
 - **Image handling:** GD with JPEG, PNG, WebP, and FreeType, plus Imagick.
-- **Container setup:** WordPress-tested Apache sizing, hardened Apache defaults,
+- **Container setup:** balanced Apache sizing, hardened Apache defaults,
   a static `/healthz` check, and logs sent to the container output.
 - **Base system:** a small Debian Bookworm Slim runtime containing only the
   libraries required by Apache, PHP, and the bundled extensions.
@@ -47,10 +47,10 @@ The application mount is read-only above. That is a good default. If your
 application needs uploads, cache files, or generated media, mount only those
 specific writable directories as named volumes or writable bind mounts.
 
-## Resource limits and WordPress-safe sizing
+## Resource limits and worker sizing
 
 Set CPU and memory limits in Docker, Compose, or Kubernetes. PHP Apex starts
-with the WordPress-tested 128-worker profile and recycles Apache children after
+with a balanced 128-worker profile and recycles Apache children after
 1,000 connections so memory remains controlled during sustained traffic.
 
 ```yaml
