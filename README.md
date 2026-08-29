@@ -93,21 +93,43 @@ latency, extensions, CPU limits, and memory limits all affect real-world
 results. Run your own application under representative traffic before choosing
 production capacity.
 
-### One-hour WordPress validation
+### WordPress comparison with PHP-FPM
 
-The default steady profile was also tested for 60 minutes against WordPress
-core with 32 anonymous and 8 logged-in connections running together:
+WordPress core was tested with a configured 60-minute load using 32 anonymous
+and 8 logged-in connections running together. PHP Apex used its 128-worker
+steady profile. PHP-FPM used a static 32-worker pool, with Apache and FPM memory
+counted together.
 
-| Traffic | Requests | Requests/sec | Average latency | p99 latency |
+| Traffic | PHP Apex | PHP-FPM | Result |
+| --- | ---: | ---: | ---: |
+| Anonymous | 142.72 req/s | 107.65 req/s | PHP Apex was 32.6% faster |
+| Logged-in | 23.92 req/s | 28.47 req/s | PHP-FPM was 19.0% faster |
+| Combined | **166.64 req/s** | **136.12 req/s** | **PHP Apex was 22.4% faster** |
+
+| Traffic | Apex average | FPM average | Apex p99 | FPM p99 |
 | --- | ---: | ---: | ---: | ---: |
-| Anonymous | 513,810 | 142.72 | 230 ms | 583 ms |
-| Logged-in | 86,125 | 23.92 | 335 ms | 616 ms |
+| Anonymous | 230 ms | 236 ms | 583 ms | 380 ms |
+| Logged-in | 335 ms | 223 ms | 616 ms | 358 ms |
 
-All 599,935 requests completed without an early load-generator exit. Every
-sampled home-page and dashboard health check returned HTTP 200. Apache memory
-settled near 1 GiB and remained stable, with a measured peak near 1.04 GiB.
-This validates WordPress core on the tested server; third-party themes and
-plugins should still be checked in staging.
+PHP Apex favored total throughput, especially for anonymous pages. PHP-FPM
+favored memory efficiency and was faster for the logged-in dashboard workload:
+
+| Combined service memory | PHP Apex | Apache + PHP-FPM |
+| --- | ---: | ---: |
+| Average | 979.6 MiB | 435.7 MiB |
+| Peak | 1,038.8 MiB | 466.6 MiB |
+
+Every sampled home-page and dashboard health check returned HTTP 200 in both
+runs. The PHP-FPM run recorded 80 request timeouts; the PHP Apex report did not
+contain socket errors. The FPM host stalled for about 15.5 minutes, so `wrk`
+reported 75.5 minutes of elapsed wall time for its configured 60-minute run.
+Its requests-per-second figures use that full elapsed time.
+
+These results show the choice clearly on this server: PHP Apex delivered 22.4%
+more combined WordPress throughput, while the 32-worker FPM pool used about 55%
+less memory. Worker counts were deliberately different, so treat this as a
+comparison of the tested production-style profiles—not equal-sized pools.
+Third-party themes and plugins should still be checked in staging.
 
 ## Recommended: launch the all-in-one image
 
