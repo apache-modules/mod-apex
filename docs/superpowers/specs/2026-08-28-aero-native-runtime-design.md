@@ -17,6 +17,18 @@ dynamic request and executes PHP inside the same Apache worker thread. The
 design does not introduce a socket, FastCGI handoff, or separate PHP worker
 process.
 
+## Repository Independence
+
+Aero is developed in its own Git repository at `/home/bode/sites/mod_aero`.
+The current `/home/bode/sites/mod_apex` repository is a read-only behavioral
+reference during migration. Aero does not build against, link against, include,
+package, or modify files from the Apex repository.
+
+Proven behavior may be reimplemented with attribution and focused parity tests,
+but changes are committed only to the Aero repository. Aero owns independent
+versioning, releases, packages, images, issues, and documentation. The public
+Apex distribution remains unchanged until a separately approved cutover plan.
+
 ## Decisions
 
 - One dynamic Aero application runs per Apache instance or container.
@@ -400,6 +412,8 @@ recycle reason. Headers, cookies, query values, request bodies, and secrets are
 not logged by default.
 
 ## Source Layout
+
+The following paths are relative to the standalone `mod_aero` repository root:
 
 ```text
 include/
