@@ -1,4 +1,4 @@
-# Apex Native Runtime Architecture
+# Aero Native Runtime Architecture
 
 Date: 2026-08-28
 
@@ -6,23 +6,23 @@ Status: Approved design; implementation not started
 
 ## Purpose
 
-This document describes a clean-sheet architecture for a future Apex runtime.
+This document describes a clean-sheet architecture for a future Aero runtime.
 It is not a refactor plan for the current `mod_apex.c`. The design intentionally
-introduces an Apex-specific application model to gain throughput, lifecycle
+introduces an Aero-specific application model to gain throughput, lifecycle
 control, and failure isolation while retaining an optional compatibility path
 for traditional PHP applications.
 
-The primary goal is to preserve Apex's shortest request path: Apache receives a
+The primary goal is to preserve Aero's shortest request path: Apache receives a
 dynamic request and executes PHP inside the same Apache worker thread. The
 design does not introduce a socket, FastCGI handoff, or separate PHP worker
 process.
 
 ## Decisions
 
-- One dynamic Apex application runs per Apache instance or container.
+- One dynamic Aero application runs per Apache instance or container.
 - Each Apache child owns one PHP ZTS engine.
 - Each Apache worker thread lazily boots one persistent native application
-  runtime when it first receives an Apex request.
+  runtime when it first receives an Aero request.
 - Apache serves declared static routes without entering PHP.
 - A manifest declares the application, routes, limits, and runtime mode.
 - Native applications receive immutable structured requests and return
@@ -51,11 +51,11 @@ would have to wait for runtime leases. The resulting queue, synchronization,
 cancellation, and lease-recovery behavior would add latency and create new
 deadlock risks. It also conflicts with PHP ZTS's natural per-thread state.
 
-### Separate Apex worker processes
+### Separate Aero worker processes
 
 Dedicated runtime processes would improve crash and memory isolation, but they
 would reintroduce serialization, queuing, and a process handoff similar to
-PHP-FPM. That contradicts Apex's purpose and is not selected.
+PHP-FPM. That contradicts Aero's purpose and is not selected.
 
 ## System Ownership
 
@@ -70,16 +70,16 @@ Apache continues to own:
 - Compression and output filters
 - Child and worker-thread management
 
-Apex owns:
+Aero owns:
 
 - Manifest validation and route selection
 - PHP engine and per-thread runtime lifecycle
-- Apache-to-Apex request translation
+- Apache-to-Aero request translation
 - Native application boot and logical request scopes
 - Compatibility-mode SAPI translation
 - Response validation and streaming
 - Runtime health, poisoning, and recycle decisions
-- Apex-specific metrics and diagnostics
+- Aero-specific metrics and diagnostics
 
 ## Request Flow
 
@@ -93,7 +93,7 @@ Apache event MPM
   `-- application route
          |
          v
-   Per-thread Apex runtime
+   Per-thread Aero runtime
          |-- immutable request
          |-- request scope
          |-- persistent service registry
@@ -107,7 +107,7 @@ Apache event MPM
 ## Internal Modules
 
 The architecture uses small internal interfaces to hide Apache, PHP, TSRM, and
-SAPI complexity. `mod_apex.c` is a composition root rather than the request
+SAPI complexity. `mod_aero.c` is a composition root rather than the request
 implementation.
 
 ### Apache adapter
@@ -124,9 +124,9 @@ configuration checking. The route matcher uses its compiled immutable output
 to return exactly one of:
 
 ```c
-APEX_ROUTE_DECLINED
-APEX_ROUTE_STATIC
-APEX_ROUTE_APPLICATION
+AERO_ROUTE_DECLINED
+AERO_ROUTE_STATIC
+AERO_ROUTE_APPLICATION
 ```
 
 No live request reparses the manifest or infers native routes from `.php` file
@@ -139,16 +139,16 @@ native application boot, compatibility execution, poison state, and orderly
 shutdown. Its external interface hides TSRM and SAPI ordering:
 
 ```c
-apex_runtime_result apex_runtime_execute(
-    apex_runtime_manager *manager,
-    const apex_request *request,
-    apex_response_sink *response
+aero_runtime_result aero_runtime_execute(
+    aero_runtime_manager *manager,
+    const aero_request *request,
+    aero_response_sink *response
 );
 ```
 
 ### Request bridge
 
-The request bridge builds an immutable Apex request containing the method,
+The request bridge builds an immutable Aero request containing the method,
 scheme, authority, path, query, headers, cookies, client identity, authenticated
 Apache user, body stream, deadline, and cancellation state. It never exposes
 `request_rec` to userland.
@@ -178,11 +178,11 @@ path. Formatting occurs only when a metrics endpoint is requested.
 
 ## Native Runtime Lifecycle
 
-The native runtime uses one real PHP request to host many Apex logical requests.
+The native runtime uses one real PHP request to host many Aero logical requests.
 This is required because ordinary PHP userland objects do not survive
 `php_request_shutdown()`.
 
-### First Apex request on a thread
+### First Aero request on a thread
 
 1. Attach the thread's TSRM state.
 2. Run `php_request_startup()` once.
@@ -192,9 +192,9 @@ This is required because ordinary PHP userland objects do not survive
 
 ### Every logical HTTP request
 
-1. Open a new Apex request scope.
+1. Open a new Aero request scope.
 2. Build the immutable request.
-3. Reset transient Apex-managed PHP state.
+3. Reset transient Aero-managed PHP state.
 4. Call the application handler.
 5. Validate and commit the response.
 6. Run registered after-request cleanup.
@@ -241,7 +241,7 @@ the request scope must not survive the scope.
 Conceptual registration:
 
 ```php
-return Apex::application()
+return Aero::application()
     ->persistent(DatabasePool::class, $databaseFactory)
     ->persistent(CacheClient::class, $cacheFactory)
     ->handler(AppHandler::class);
@@ -251,10 +251,10 @@ Persistent services that retain request-adjacent resources implement lifecycle
 hooks:
 
 ```php
-interface ApexPersistentService
+interface AeroPersistentService
 {
-    public function beforeRequest(ApexRequest $request): void;
-    public function afterRequest(ApexRequestOutcome $outcome): void;
+    public function beforeRequest(AeroRequest $request): void;
+    public function afterRequest(AeroRequestOutcome $outcome): void;
     public function shutdown(): void;
 }
 ```
@@ -273,17 +273,17 @@ real PHP shutdown after each request.
 The core userland interface is intentionally small:
 
 ```php
-interface ApexApplication
+interface AeroApplication
 {
-    public function handle(ApexRequest $request): ApexResponse;
+    public function handle(AeroRequest $request): AeroResponse;
 }
 ```
 
-`ApexRequest` is immutable and exposes method, scheme, authority, path, query,
+`AeroRequest` is immutable and exposes method, scheme, authority, path, query,
 headers, cookies, body, client information, cancellation, and request scope.
 Query and cookie parsing are lazy and cached only within the logical request.
 
-`ApexResponse` is an immutable response builder with fixed-body and streaming
+`AeroResponse` is an immutable response builder with fixed-body and streaming
 forms. It validates:
 
 - HTTP status range
@@ -298,7 +298,7 @@ forms. It validates:
 Request bodies are streamed rather than unconditionally buffered. Reads honor
 Apache timeouts, client disconnects, configured size limits, and cancellation.
 
-Response streams write through an Apex-controlled sink. The sink:
+Response streams write through an Aero-controlled sink. The sink:
 
 - Respects Apache output-filter backpressure
 - Stops after cancellation or client disconnect
@@ -313,10 +313,10 @@ proven.
 
 ## Manifest
 
-Apache points Apex to one application manifest:
+Apache points Aero to one application manifest:
 
 ```apache
-ApexApplication /var/www/myapp/apex.toml
+AeroApplication /var/www/myapp/aero.toml
 ```
 
 Example:
@@ -341,8 +341,8 @@ max_body = "32M"
 max_concurrent_streams = 16
 
 [health]
-live = "/.apex/live"
-ready = "/.apex/ready"
+live = "/.aero/live"
+ready = "/.aero/ready"
 ```
 
 `application.mode` is the single mode selector and accepts `native` or
@@ -378,7 +378,7 @@ The runtime is poisoned when any of the following occurs:
 - Timeout that cannot unwind safely
 - Response-bridge invariant violation
 
-A poisoned child stops accepting new Apex work, drains safe active requests,
+A poisoned child stops accepting new Aero work, drains safe active requests,
 and exits. Apache creates a clean replacement. The architecture prefers losing
 one child over reusing state that might expose one request to another.
 
@@ -403,15 +403,15 @@ not logged by default.
 
 ```text
 include/
-  apex_manifest.h
-  apex_routes.h
-  apex_runtime.h
-  apex_request.h
-  apex_response.h
-  apex_lifecycle.h
-  apex_metrics.h
+  aero_manifest.h
+  aero_routes.h
+  aero_runtime.h
+  aero_request.h
+  aero_response.h
+  aero_lifecycle.h
+  aero_metrics.h
 src/
-  mod_apex.c
+  mod_aero.c
   apache_adapter.c
   manifest.c
   route_matcher.c
@@ -483,7 +483,7 @@ or isolation requirements.
 - Automatic in-place production code reload
 - Transparent persistence for arbitrary legacy PHP globals
 - Cross-thread sharing of PHP userland objects
-- A separate Apex daemon or FastCGI-compatible worker pool
+- A separate Aero daemon or FastCGI-compatible worker pool
 
 ## Implementation Constraints
 
@@ -491,7 +491,7 @@ or isolation requirements.
 - Never access request context after its owning lifecycle stage has ended.
 - Never reuse a runtime after uncertain cleanup.
 - Keep native and compatibility lifecycles explicit and separately testable.
-- Do not add proxy-header trust decisions inside Apex.
+- Do not add proxy-header trust decisions inside Aero.
 - Validate configuration before serving a new generation.
 - Keep the application-facing interface independent of Apache and SAPI types.
 
