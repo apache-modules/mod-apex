@@ -480,7 +480,76 @@ opcache.jit_buffer_size=128M
 ```
 
 With `opcache.validate_timestamps=0`, restart Apache during deployment so
-updated PHP files are loaded.
+updated PHP files are loaded. This setting is best when application code is
+immutable.
+
+The Docker image uses the same immutable-code default. If PHP files can change
+inside a running container—for example, WordPress writes a plugin or theme to
+a mounted volume—start the container with:
+
+```bash
+docker run -d \
+  -e APEX_OPCACHE_VALIDATE=1 \
+  -p 8080:80 \
+  -v "$(pwd)/app:/var/www/html" \
+  practicalwebuser/mod_apex-apache:php8.4
+```
+
+Use `APEX_OPCACHE_VALIDATE=0` for baked-in or read-only code and `1` for
+writable PHP code. The container rejects any other value during startup.
+
+## Docker security controls
+
+The Docker image generates these safer PHP defaults at startup:
+
+```ini
+expose_php=Off
+session.cookie_httponly=1
+session.cookie_samesite=Lax
+```
+
+For a multi-tenant platform that accepts customer PHP code, opt into stricter
+process and remote-file access:
+
+```bash
+docker run -d \
+  -e APEX_DISABLE_FUNCTIONS=exec,passthru,shell_exec,system,proc_open,popen \
+  -e APEX_ALLOW_URL_FOPEN=0 \
+  -p 8080:80 \
+  practicalwebuser/mod_apex-apache:php8.4
+```
+
+The function list is empty by default because legitimate applications may use
+`proc_open`. It must be a comma-separated list of PHP function names.
+`APEX_ALLOW_URL_FOPEN` accepts `0` or `1` and defaults to `1`.
+
+The image does not expose `/test.php` by default. Set
+`APEX_ENABLE_TEST_PAGE=1` only for a temporary private smoke test, then remove
+the setting before exposing the container publicly.
+
+When the container runs behind a trusted reverse proxy, set its network CIDR
+so PHP receives the resolved visitor address in `REMOTE_ADDR`:
+
+```bash
+docker run -d \
+  -e APEX_TRUSTED_PROXY="10.89.0.0/16" \
+  -p 8080:80 \
+  practicalwebuser/mod_apex-apache:php8.4
+```
+
+Multiple addresses or CIDRs may be space-separated. Trust only networks that
+cannot be reached directly by untrusted clients. For proxy chains, every hop
+must validate and sanitize the forwarded header or be explicitly trusted.
+
+The container disables unrestricted `.htaccess` overrides while retaining the
+four rewrite directives used by standard WordPress permalinks. `mod_apex`
+registers no `php_value` or `php_admin_value` directive, so tenants cannot use
+those names to undo `disable_functions`; Apache rejects them as unknown.
+
+`APEX_MAX_CONNECTIONS_PER_CHILD` controls Apache child recycling and defaults
+to `1000`. It counts TCP connections rather than requests. Test `10000` or `0`
+(`0` disables count-based recycling) while observing memory, restarts,
+throughput, and latency before changing the production value.
 
 ## PHP application settings
 

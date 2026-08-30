@@ -115,8 +115,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libzip4 \
         zlib1g \
     && rm -rf /var/lib/apt/lists/* \
-    && a2dismod mpm_prefork >/dev/null 2>&1 || true \
-    && a2enmod mpm_event
+    && (a2dismod mpm_prefork >/dev/null 2>&1 || true) \
+    && a2enmod mpm_event remoteip rewrite
 
 # PHP ZTS/embed runtime + mod_apex module
 COPY --from=builder /usr/local/php-zts /usr/local/php-zts
@@ -144,11 +144,12 @@ COPY docker/000-mod-apex.conf /etc/apache2/sites-available/000-mod-apex.conf
 RUN a2dissite 000-default >/dev/null 2>&1 || true \
     && a2ensite 000-mod-apex
 
-# Smoke-test endpoint and a static health endpoint. The health endpoint does
-# not invoke PHP, so a load balancer can distinguish web-server availability
-# from an application-level issue.
-RUN mkdir -p /var/www/html
-COPY test.php /var/www/html/test.php
+# Keep the optional PHP test page outside the document root. The entrypoint
+# publishes it only when APEX_ENABLE_TEST_PAGE=1. The static health endpoint
+# does not invoke PHP, so a load balancer can distinguish web-server
+# availability from an application-level issue.
+RUN mkdir -p /var/www/html /usr/local/share/mod-apex
+COPY test.php /usr/local/share/mod-apex/test.php
 RUN printf 'ok\n' > /var/www/html/healthz \
     && chown -R www-data:www-data /var/www/html
 

@@ -95,6 +95,66 @@ docker run -d --name my-php-app \
 Start with 128 and raise it only after measuring your application's memory use
 and latency under representative traffic.
 
+Apache children recycle after 1,000 TCP connections by default. A keep-alive
+connection can carry multiple requests. Use
+`APEX_MAX_CONNECTIONS_PER_CHILD=10000` to test a longer lifetime, or `0` to
+disable count-based recycling; measure memory and latency before changing it.
+
+### Writable plugins, themes, or templates
+
+OPcache is optimized for immutable containers by default. If PHP code can
+change while the container is running, enable timestamp validation so those
+changes are loaded:
+
+```bash
+docker run -d --name my-php-app \
+  -e APEX_OPCACHE_VALIDATE=1 \
+  -p 8080:80 \
+  -v "$(pwd)/app:/var/www/html" \
+  practicalwebuser/mod_apex-apache:php8.4
+```
+
+Keep the default `APEX_OPCACHE_VALIDATE=0` for code baked into the image or
+mounted read-only. Set it to `1` for writable PHP code, including
+volume-mounted WordPress plugins and themes. Only `0` and `1` are accepted.
+
+### Security controls for a PaaS
+
+PHP version headers are disabled, and session cookies default to `HttpOnly`
+with `SameSite=Lax`. Applications can override their own cookie policy.
+
+If customers can upload PHP code, opt into tighter process and URL access:
+
+```bash
+docker run -d --name my-php-app \
+  -e APEX_DISABLE_FUNCTIONS=exec,passthru,shell_exec,system,proc_open,popen \
+  -e APEX_ALLOW_URL_FOPEN=0 \
+  -p 8080:80 \
+  practicalwebuser/mod_apex-apache:php8.4
+```
+
+The disabled-function list is empty by default because some applications use
+`proc_open`. `APEX_ALLOW_URL_FOPEN` defaults to `1`. It and the other Boolean
+image settings accept only `0` or `1`.
+
+### Real visitor IPs behind a proxy
+
+The image includes `mod_remoteip` but trusts no network automatically. For a
+Traefik network such as `10.89.0.0/16`, set:
+
+```bash
+-e APEX_TRUSTED_PROXY="10.89.0.0/16"
+```
+
+Space-separate multiple trusted CIDRs. In a Cloudflare → Traefik deployment,
+Traefik must validate and sanitize Cloudflare's forwarded headers, or PHP Apex
+must also receive the current Cloudflare proxy ranges. Do not use
+`0.0.0.0/0`. Confirm `$_SERVER['REMOTE_ADDR']` before using it for security
+decisions.
+
+The default `.htaccess` policy permits only WordPress rewrite directives. It
+does not allow arbitrary Apache overrides, `php_value`, or `php_admin_value`.
+
 Check availability without invoking PHP:
 
 ```bash
@@ -103,9 +163,9 @@ docker logs my-php-app
 ```
 
 `/healthz` is a small static check for container and load-balancer monitoring.
-The image also includes `/test.php` for a quick PHP check; mounting your app at
-`/var/www/html` replaces it. If you do not mount an application directory,
-block or remove that test page before exposing the container publicly.
+The image does not publish `/test.php` by default. You can temporarily set
+`APEX_ENABLE_TEST_PAGE=1` for a private PHP smoke test; disable it before
+exposing the container publicly.
 
 The image serves HTTP on port 80. Put TLS certificates and public internet
 traffic at your reverse proxy or load balancer.
