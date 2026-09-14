@@ -1,6 +1,6 @@
 # Official Arch package recipe for the PHP ZTS runtime used by PHP Apex.
 pkgname=php-zts-full
-pkgver=8.4.21
+pkgver=8.4.25
 pkgrel=1
 pkgdesc='PHP ZTS embed runtime with OPcache, JIT, and common web extensions for PHP Apex'
 arch=('x86_64')

@@ -18,7 +18,7 @@ Usage:
   sudo $(basename "$0") throughput
 
 Profiles:
-  steady      WordPress-safe default validated by a one-hour soak test.
+  steady      Conservative 2-CPU/2-GB baseline with keep-alive disabled.
   throughput  Controlled 256-worker profile for higher traffic.
   status      Show the active PHP Apex performance file.
 
@@ -98,13 +98,13 @@ require_managed_directory() {
 
 calculate_steady_values() {
     profile_name="steady"
-    max_request_workers="${APEX_MAX_REQUEST_WORKERS:-128}"
-    calculate_worker_layout 2
-    keep_alive="On"
+    max_request_workers="${APEX_MAX_REQUEST_WORKERS:-64}"
+    calculate_worker_layout 1
+    keep_alive="Off"
     max_keep_alive_requests=10000
     keep_alive_timeout=1
-    max_connections_per_child=1000
-    printf 'Steady WordPress profile: MaxRequestWorkers=%s\n' "$max_request_workers"
+    max_connections_per_child=0
+    printf 'Steady 2-CPU/2-GB profile: MaxRequestWorkers=%s\n' "$max_request_workers"
 }
 
 calculate_worker_layout() {

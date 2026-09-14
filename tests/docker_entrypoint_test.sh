@@ -26,7 +26,10 @@ grep -Fx 'session.cookie_httponly=1' "$test_root/default/opcache.ini"
 grep -Fx 'session.cookie_samesite=Lax' "$test_root/default/opcache.ini"
 grep -Fx 'allow_url_fopen=1' "$test_root/default/opcache.ini"
 grep -Fx 'disable_functions=' "$test_root/default/opcache.ini"
-grep -Fx '    MaxConnectionsPerChild 1000' "$test_root/default/apache.conf"
+grep -Fx 'KeepAlive Off' "$test_root/default/apache.conf"
+grep -Fx '    ServerLimit 1' "$test_root/default/apache.conf"
+grep -Fx '    MaxRequestWorkers 64' "$test_root/default/apache.conf"
+grep -Fx '    MaxConnectionsPerChild 0' "$test_root/default/apache.conf"
 if grep -Fq 'RemoteIPHeader' "$test_root/default/apache.conf"; then
     echo 'remote IP handling must remain disabled without APEX_TRUSTED_PROXY' >&2
     exit 1
@@ -57,6 +60,10 @@ grep -Fx '    RemoteIPHeader X-Forwarded-For' "$test_root/proxy/apache.conf"
 grep -Fx '    RemoteIPTrustedProxy 10.89.0.0/16' "$test_root/proxy/apache.conf"
 grep -Fx '    RemoteIPTrustedProxy 173.245.48.0/20' "$test_root/proxy/apache.conf"
 
+run_entrypoint high-traffic APEX_KEEP_ALIVE=1 APEX_MAX_REQUEST_WORKERS=256
+grep -Fx 'KeepAlive On' "$test_root/high-traffic/apache.conf"
+grep -Fx '    MaxRequestWorkers 256' "$test_root/high-traffic/apache.conf"
+
 if run_entrypoint invalid APEX_OPCACHE_VALIDATE=2 \
     >"$test_root/invalid.stdout" 2>"$test_root/invalid.stderr"; then
     echo 'expected invalid APEX_OPCACHE_VALIDATE to fail' >&2
@@ -80,6 +87,15 @@ if run_entrypoint invalid-test-page APEX_ENABLE_TEST_PAGE=yes \
 fi
 grep -F 'APEX_ENABLE_TEST_PAGE must be 0 or 1' \
     "$test_root/invalid-test-page.stderr"
+
+if run_entrypoint invalid-keepalive APEX_KEEP_ALIVE=yes \
+    >"$test_root/invalid-keepalive.stdout" \
+    2>"$test_root/invalid-keepalive.stderr"; then
+    echo 'expected invalid APEX_KEEP_ALIVE to fail' >&2
+    exit 1
+fi
+grep -F 'APEX_KEEP_ALIVE must be 0 or 1' \
+    "$test_root/invalid-keepalive.stderr"
 
 if run_entrypoint invalid-functions 'APEX_DISABLE_FUNCTIONS=exec,system
 auto_prepend_file=/tmp/evil.php' \
@@ -117,6 +133,12 @@ RemoteIPHeader X-Real-IP' \
 fi
 grep -F 'APEX_TRUSTED_PROXY must contain only space-separated IP addresses or CIDR ranges' \
     "$test_root/invalid-proxy.stderr"
+
+keepalive_conf="$repo_root/docker/keepalive-tuning.conf"
+if grep -Eq '^[[:space:]]*KeepAlive[[:space:]]' "$keepalive_conf"; then
+    echo 'static keepalive config must not override the generated runtime profile' >&2
+    exit 1
+fi
 
 vhost_conf="$repo_root/docker/000-mod-apex.conf"
 grep -Fx '        AllowOverride None' "$vhost_conf"

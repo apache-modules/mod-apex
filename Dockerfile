@@ -13,9 +13,9 @@
 # Mount your application into /var/www/html, e.g.:
 #   docker run --rm -p 8080:80 -v "$PWD/app:/var/www/html:ro" mod-apex
 
-ARG PHP_VERSION=8.4.21
-ARG APCU_VERSION=5.1.24
-ARG REDIS_VERSION=6.1.0
+ARG PHP_VERSION=8.4.25
+ARG APCU_VERSION=5.1.28
+ARG REDIS_VERSION=6.3.0
 ARG IMAGICK_VERSION=3.8.1
 ARG DEBIAN_IMAGE=debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 

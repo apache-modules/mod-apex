@@ -10,7 +10,7 @@ most WordPress, Drupal, Symfony, and custom PHP applications commonly need.
 ## What's in the image
 
 - **Apache 2.4 with event MPM** for modern threaded request handling.
-- **PHP 8.4.21 ZTS** with the embed SAPI used by PHP Apex.
+- **PHP 8.4.25 ZTS** with the embed SAPI used by PHP Apex.
 - **PHP Apex (`mod_apex`)** already loaded and mapped to `.php` files.
 - **Performance tools:** OPcache with JIT support and APCu object caching.
 - **Cache and session support:** the native Redis PHP extension.
@@ -33,7 +33,7 @@ Put your PHP application in an `app` folder, then run:
 ```bash
 docker pull practicalwebuser/mod_apex-apache:php8.4
 docker run -d --name my-php-app \
-  --cpus=4 --memory=2g \
+  --cpus=2 --memory=2g \
   -p 8080:80 \
   -v "$(pwd)/app:/var/www/html:ro" \
   practicalwebuser/mod_apex-apache:php8.4
@@ -50,8 +50,8 @@ specific writable directories as named volumes or writable bind mounts.
 ## Resource limits and worker sizing
 
 Set CPU and memory limits in Docker, Compose, or Kubernetes. PHP Apex starts
-with a balanced 128-worker profile and recycles Apache children after
-1,000 connections so memory remains controlled during sustained traffic.
+with a conservative 64-worker profile for a 2-CPU, 2-GB container, disables
+keep-alive, and keeps its single Apache child persistent.
 
 ```yaml
 services:
@@ -61,25 +61,30 @@ services:
       - "8080:80"
     volumes:
       - ./app:/var/www/html:ro
-    cpus: 4
+    cpus: 2
     mem_limit: 2g
 ```
 
-The default is 128 workers. To override it deliberately:
+The default is 64 workers. For a measured high-traffic deployment, enable
+short keep-alive connections and raise the worker limit deliberately:
 
 ```bash
 docker run -d --name my-php-app \
-  --cpus=4 --memory=2g \
+  --cpus=2 --memory=2g \
+  -e APEX_KEEP_ALIVE=1 \
   -e APEX_MAX_REQUEST_WORKERS=256 \
   -p 8080:80 \
   practicalwebuser/mod_apex-apache:php8.4
 ```
 
 `APEX_MAX_REQUEST_WORKERS` accepts whole numbers from 64 through 512.
+`APEX_KEEP_ALIVE` accepts `0` or `1` and defaults to `0`. Enable it only after
+measuring a representative high-traffic workload.
 
-`MaxConnectionsPerChild` defaults to 1,000 connections per Apache child. It
-counts TCP connections, not PHP requests; one keep-alive connection can carry
-many requests. To compare a longer child lifetime without rebuilding:
+`MaxConnectionsPerChild` defaults to `0`, which keeps the single baseline
+child persistent. It counts TCP connections, not PHP requests; one keep-alive
+connection can carry many requests. Multi-child deployments can test recycling
+without rebuilding:
 
 ```bash
 docker run -d --name my-php-app \
@@ -90,7 +95,7 @@ docker run -d --name my-php-app \
 
 `APEX_MAX_CONNECTIONS_PER_CHILD` accepts values from `0` through `1000000`;
 `0` disables connection-count recycling. Measure memory, child restart rate,
-latency, and throughput before changing the default for production.
+latency, and throughput before enabling recycling in production.
 
 ## OPcache and writable application code
 
@@ -202,7 +207,7 @@ post_max_size=32M
 
 ```bash
 docker run -d --name my-php-app \
-  --cpus=4 --memory=2g \
+  --cpus=2 --memory=2g \
   -p 8080:80 \
   -v "$(pwd)/app:/var/www/html:ro" \
   -v "$(pwd)/application.ini:/usr/local/php-zts/etc/conf.d/90-application.ini:ro" \

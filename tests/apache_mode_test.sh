@@ -51,18 +51,18 @@ make_helpers "$helper_dir"
 steady_conf="$fixture_root/steady/php-apex-performance.conf"
 mkdir -p "$(dirname "$steady_conf")"
 run_mode steady "$steady_conf" "$helper_dir"
-assert_contains "$steady_conf" 'KeepAlive On'
-assert_contains "$steady_conf" 'ServerLimit 2'
+assert_contains "$steady_conf" 'KeepAlive Off'
+assert_contains "$steady_conf" 'ServerLimit 1'
 assert_contains "$steady_conf" 'ThreadLimit 64'
 assert_contains "$steady_conf" 'ThreadsPerChild 64'
-assert_contains "$steady_conf" 'MaxRequestWorkers 128'
-assert_contains "$steady_conf" 'MaxSpareThreads 128'
-assert_contains "$steady_conf" 'MaxConnectionsPerChild 1000'
+assert_contains "$steady_conf" 'MaxRequestWorkers 64'
+assert_contains "$steady_conf" 'MaxSpareThreads 64'
+assert_contains "$steady_conf" 'MaxConnectionsPerChild 0'
 assert_contains "$fixture_root/restarts.log" 'restart apache2'
 
 status_output="$(APEX_PLATFORM=debian APEX_TUNING_CONF="$steady_conf" "$command_under_test" status)"
 [[ "$status_output" == *'Profile: steady'* ]] || fail 'status does not identify the steady profile'
-[[ "$status_output" == *'MaxRequestWorkers 128'* ]] || fail 'status does not show worker count'
+[[ "$status_output" == *'MaxRequestWorkers 64'* ]] || fail 'status does not show worker count'
 
 throughput_conf="$fixture_root/throughput/php-apex-performance.conf"
 mkdir -p "$(dirname "$throughput_conf")"

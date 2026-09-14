@@ -37,8 +37,9 @@ hosts, access control, and the event MPM—through a shorter, simpler path.
 - **Start with the extensions applications expect.** OPcache, JIT, APCu,
   Redis, Imagick, MySQL, SQLite, GD, intl, mbstring, ZIP, sodium, SOAP, and
   more are included in the full runtime.
-- **Start with a WordPress-tested configuration.** The default 128-worker
-  profile controls memory, recycles workers, checks Apache, and works across
+- **Start with a conservative configuration.** The default 64-worker profile
+  targets a 2-CPU, 2-GB single-application server, disables keep-alive,
+  keeps its single PHP child persistent, checks Apache, and works across
   Debian, Ubuntu, Fedora, and Arch Linux.
 - **Deploy your way.** Use the all-in-one Docker image or native packages for
   Debian, Ubuntu, Fedora, and Arch Linux.
@@ -51,7 +52,7 @@ hosts, access control, and the event MPM—through a shorter, simpler path.
 | Apache MPM | `event` | `event` | Usually `prefork` |
 | PHP runtime | Thread-safe PHP ZTS | Separate PHP processes | PHP inside Apache processes |
 | Services to operate | One web service | Apache plus PHP-FPM | One web service |
-| Worker tuning | WordPress-tested profiles included | Tune Apache and FPM pools | Tune prefork Apache |
+| Worker tuning | Conservative and throughput profiles included | Tune Apache and FPM pools | Tune prefork Apache |
 | Ready-to-run container | Apache, PHP, and PHP Apex together | Commonly split or supervised | Available, but tied to prefork |
 
 PHP Apex is a strong fit when Apache is part of your platform and you want a
@@ -133,7 +134,7 @@ Third-party themes and plugins should still be checked in staging.
 
 ## Recommended: launch the all-in-one image
 
-Get Apache, PHP 8.4 ZTS, PHP Apex, OPcache, health checks, the WordPress-tested
+Get Apache, PHP 8.4 ZTS, PHP Apex, OPcache, health checks, the conservative
 worker profile, and the full extension set in one image. Bring your application
 and set the container limits; the request stack is already assembled.
 
@@ -157,16 +158,16 @@ For production, set CPU and memory limits outside the image:
 docker run -d \
   --name php-apex \
   --restart unless-stopped \
-  --cpus=4 \
+  --cpus=2 \
   --memory=2g \
   -p 8080:80 \
   -v /srv/my-app/public:/var/www/html:ro \
   practicalwebuser/mod_apex-apache:php8.4
 ```
 
-The image starts with 128 workers and recycles children after 1,000
-connections. See [DOCKER.md](DOCKER.md) for application volumes, PHP settings,
-Apache settings, logs, health checks, and reverse-proxy setup.
+The image starts with 64 workers, disables keep-alive, and recycles children
+after 1,000 connections. See [DOCKER.md](DOCKER.md) for application volumes,
+PHP settings, Apache settings, logs, health checks, and reverse-proxy setup.
 
 ## Install PHP Apex directly on a server
 
@@ -197,7 +198,7 @@ sudo apt install ./php-zts-full_8.4.21-1_amd64.deb ./mod-apex_0.1.7_amd64.deb
 ```
 
 Switch Apache to the threaded `event` MPM, enable PHP Apex, and apply the
-WordPress-tested steady settings:
+conservative steady settings:
 
 ```bash
 sudo a2dismod php8.4 2>/dev/null || true
@@ -230,7 +231,7 @@ sha256sum --ignore-missing -c SHA256SUMS
 sudo pacman -U ./php-zts-full-8.4.21-1-x86_64.pkg.tar.zst ./mod-apex-0.1.7-1-x86_64.pkg.tar.zst
 ```
 
-Enable Apache at boot and apply the WordPress-tested steady settings:
+Enable Apache at boot and apply the conservative steady settings:
 
 ```bash
 sudo httpd -t
@@ -374,12 +375,11 @@ should not be loaded.
 
 ## Configure the server for the best performance
 
-### Steady profile—default for WordPress and real sites
+### Steady profile—default for a 2-CPU, 2-GB server
 
 Start here. New native packages install this profile automatically. It gives
-Apache 128 PHP-ready workers and replaces each child after 1,000 connections,
-preventing a busy WordPress server from retaining an unlimited per-thread
-memory high-water mark.
+Apache 64 PHP-ready workers, disables keep-alive, and keeps the single child
+persistent so connection-count recycling cannot interrupt the whole PHP pool.
 
 ```bash
 sudo php-apex-mode steady
@@ -411,7 +411,7 @@ sudo php-apex-mode throughput
 
 This profile enables short keep-alive connections and raises the controlled
 worker pool to 256. It retains the 1,000-connection recycling limit. The
-128-worker steady profile remains the recommended starting point.
+64-worker steady profile remains the recommended starting point.
 
 ### Configure the performance file manually
 
@@ -422,23 +422,23 @@ path for your distribution:
 - Fedora: `/etc/httpd/conf.d/php-apex-performance.conf`
 - Arch: `/etc/httpd/conf/conf.d/php-apex-performance.conf`
 
-This is the WordPress-tested steady profile:
+This is the conservative 2-CPU, 2-GB steady profile:
 
 ```apache
-# PHP Apex WordPress steady profile
-KeepAlive On
+# PHP Apex steady profile
+KeepAlive Off
 MaxKeepAliveRequests 10000
 KeepAliveTimeout 1
 
 <IfModule mpm_event_module>
-StartServers 2
-ServerLimit 2
+StartServers 1
+ServerLimit 1
 ThreadLimit 64
 ThreadsPerChild 64
 MinSpareThreads 64
-MaxSpareThreads 128
-MaxRequestWorkers 128
-MaxConnectionsPerChild 1000
+MaxSpareThreads 64
+MaxRequestWorkers 64
+MaxConnectionsPerChild 0
 </IfModule>
 ```
 
@@ -547,9 +547,9 @@ registers no `php_value` or `php_admin_value` directive, so tenants cannot use
 those names to undo `disable_functions`; Apache rejects them as unknown.
 
 `APEX_MAX_CONNECTIONS_PER_CHILD` controls Apache child recycling and defaults
-to `1000`. It counts TCP connections rather than requests. Test `10000` or `0`
-(`0` disables count-based recycling) while observing memory, restarts,
-throughput, and latency before changing the production value.
+to `0`, which keeps the single baseline child persistent. It counts TCP
+connections rather than requests. Multi-child deployments can test `1000` or
+`10000` while observing memory, restarts, throughput, and latency.
 
 ## PHP application settings
 

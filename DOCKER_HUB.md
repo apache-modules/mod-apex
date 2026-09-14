@@ -11,9 +11,8 @@ Run modern PHP applications with one web service and no separate PHP-FPM
 process pool. Keep Apache's event MPM without going back to legacy prefork
 mod_php.
 
-The image starts with a balanced 128-worker profile and replaces each Apache
-child after 1,000 connections to limit retained per-thread memory growth.
-Set an external container memory limit for a firm boundary.
+The image starts with a conservative 64-worker profile for a 2-CPU, 2-GB
+container, disables keep-alive, and keeps its single Apache child persistent.
 
 ## Everything included
 
@@ -30,7 +29,7 @@ extensions already together:
 - Imagick and GD with JPEG, PNG, WebP, and FreeType support
 - curl, mbstring, intl, fileinfo, EXIF, BCMath, GMP, sodium, SOAP, XML,
   SimpleXML, XMLReader, XMLWriter, XSL, and ZIP
-- balanced Apache defaults with a 128-worker limit
+- conservative Apache defaults with a 64-worker limit and keep-alive disabled
 - hardened Apache defaults, container-friendly logs, and `/healthz`
 
 The runtime uses Debian Bookworm Slim. Compilers and build tools are not kept
@@ -41,7 +40,7 @@ in the published runtime image.
 ```bash
 docker pull practicalwebuser/mod_apex-apache:php8.4
 docker run -d --name my-php-app \
-  --cpus=4 --memory=2g \
+  --cpus=2 --memory=2g \
   -p 8080:80 \
   -v "$(pwd)/app:/var/www/html:ro" \
   practicalwebuser/mod_apex-apache:php8.4
@@ -64,41 +63,41 @@ separate writable volumes.
 - **Bring popular PHP applications.** The image includes OPcache, APCu,
   Redis, Imagick, curl, mbstring, intl, GD, PDO/MySQL, SQLite, zip, sodium,
   GMP, SOAP, XSL, and more.
-- **Container-friendly by default.** The image starts with the balanced
-  128-worker profile, sends logs to `docker logs`, and includes `/healthz`.
+- **Container-friendly by default.** The image starts with the conservative
+  64-worker profile, sends logs to `docker logs`, and includes `/healthz`.
 
 ## Run it confidently
 
 Set CPU and memory limits with your container platform. PHP Apex keeps its
-balanced 128-worker default unless you explicitly set
-`APEX_MAX_REQUEST_WORKERS`. For a 4-CPU, 2 GB container, start with:
+conservative 64-worker default with keep-alive disabled unless you explicitly
+change those settings. For a 2-CPU, 2-GB container, start with:
 
 ```bash
 docker run -d --name my-php-app \
-  --cpus=4 --memory=2g \
+  --cpus=2 --memory=2g \
   -p 8080:80 \
   practicalwebuser/mod_apex-apache:php8.4
 ```
 
-To deliberately change the Apache worker limit, set a whole number from 64 to
-512:
+For a measured high-traffic deployment, enable keep-alive and set a worker
+limit from 64 to 512:
 
 ```bash
 docker run -d --name my-php-app \
-  --cpus=4 --memory=2g \
+  --cpus=2 --memory=2g \
+  -e APEX_KEEP_ALIVE=1 \
   -e APEX_MAX_REQUEST_WORKERS=256 \
   -p 8080:80 \
   -v "$(pwd)/app:/var/www/html:ro" \
   practicalwebuser/mod_apex-apache:php8.4
 ```
 
-Start with 128 and raise it only after measuring your application's memory use
-and latency under representative traffic.
+Start with 64. Enable `APEX_KEEP_ALIVE=1` and raise the worker limit only for a
+measured high-traffic deployment. `APEX_KEEP_ALIVE` accepts only `0` or `1`.
 
-Apache children recycle after 1,000 TCP connections by default. A keep-alive
-connection can carry multiple requests. Use
-`APEX_MAX_CONNECTIONS_PER_CHILD=10000` to test a longer lifetime, or `0` to
-disable count-based recycling; measure memory and latency before changing it.
+The default `APEX_MAX_CONNECTIONS_PER_CHILD=0` keeps the single baseline child
+persistent. Multi-child deployments can test `1000` or `10000` to enable
+count-based recycling; measure memory, restarts, and latency before changing it.
 
 ### Writable plugins, themes, or templates
 
