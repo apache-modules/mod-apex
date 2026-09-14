@@ -2,7 +2,7 @@
 /**
  * framework-compat-probe.php -- mod_apex framework-compatibility probe.
  *
- * Emits KEY=VALUE lines consumed by tools/compat_matrix.sh. Covers the three
+ * Emits KEY=VALUE lines for compatibility validation. Covers the three
  * things the generic $_SERVER probe (common-app-probe.php) does not:
  *
  *   1. The apache2handler shim: because mod_apex reports SAPI name
