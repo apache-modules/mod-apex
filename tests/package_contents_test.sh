@@ -18,16 +18,19 @@ case "$package_type" in
         listing="$(dpkg-deb -c "$package_path")"
         grep -Eq '^-rwxr-xr-x .*\./usr/local/sbin/php-apex-mode$' <<<"$listing"
         grep -Eq '\./etc/apache2/conf-available/php-apex-performance.conf$' <<<"$listing"
+        grep -Eq '\./usr/local/lib/php-apex/apex-sizing.sh$' <<<"$listing"
         ;;
     rpm)
         listing="$(rpm -qplv "$package_path")"
         grep -Eq '^-rwxr-xr-x .* /usr/local/sbin/php-apex-mode$' <<<"$listing"
         grep -Eq ' /etc/httpd/conf.d/php-apex-performance.conf$' <<<"$listing"
+        grep -Eq ' /usr/local/lib/php-apex/apex-sizing.sh$' <<<"$listing"
         ;;
     arch)
         listing="$(bsdtar -tvf "$package_path")"
         grep -Eq '^-rwxr-xr-x .* usr/local/sbin/php-apex-mode$' <<<"$listing"
         grep -Eq ' etc/httpd/conf/conf.d/php-apex-performance.conf$' <<<"$listing"
+        grep -Eq ' usr/local/lib/php-apex/apex-sizing.sh$' <<<"$listing"
         ;;
     *)
         echo "Unknown package type: $package_type" >&2

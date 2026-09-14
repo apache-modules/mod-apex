@@ -37,9 +37,9 @@ hosts, access control, and the event MPM—through a shorter, simpler path.
 - **Start with the extensions applications expect.** OPcache, JIT, APCu,
   Redis, Imagick, MySQL, SQLite, GD, intl, mbstring, ZIP, sodium, SOAP, and
   more are included in the full runtime.
-- **Start with a conservative configuration.** The default 64-worker profile
-  targets a 2-CPU, 2-GB single-application server, disables keep-alive,
-  keeps its single PHP child persistent, checks Apache, and works across
+- **Start with a conservative configuration.** The automatic profile sizes
+  its PHP workers from effective CPU and memory limits, disables keep-alive,
+  keeps its first PHP child persistent, checks Apache, and works across
   Debian, Ubuntu, Fedora, and Arch Linux.
 - **Deploy your way.** Use the all-in-one Docker image or native packages for
   Debian, Ubuntu, Fedora, and Arch Linux.
@@ -165,8 +165,8 @@ docker run -d \
   practicalwebuser/mod_apex-apache:php8.4
 ```
 
-The image starts with 64 workers, disables keep-alive, and recycles children
-after 1,000 connections. See [DOCKER.md](DOCKER.md) for application volumes,
+The image automatically sizes its worker pool from its CPU and memory limits,
+disables keep-alive, and keeps the first child persistent. See [DOCKER.md](DOCKER.md) for application volumes,
 PHP settings, Apache settings, logs, health checks, and reverse-proxy setup.
 
 ## Install PHP Apex directly on a server
@@ -198,7 +198,7 @@ sudo apt install ./php-zts-full_8.4.21-1_amd64.deb ./mod-apex_0.1.7_amd64.deb
 ```
 
 Switch Apache to the threaded `event` MPM, enable PHP Apex, and apply the
-conservative steady settings:
+automatic resource-aware settings:
 
 ```bash
 sudo a2dismod php8.4 2>/dev/null || true
@@ -207,7 +207,7 @@ sudo a2dismod mpm_prefork 2>/dev/null || true
 sudo a2enmod mpm_event apex
 sudo apachectl -t
 sudo systemctl restart apache2
-sudo php-apex-mode steady
+sudo php-apex-mode auto
 ```
 
 ### Fedora
@@ -219,7 +219,7 @@ sha256sum --ignore-missing -c SHA256SUMS
 sudo dnf install ./php-zts-full-8.4.21-1.fc44.x86_64.rpm ./mod_apex-0.1.7-1.fc44.x86_64.rpm
 sudo httpd -t
 sudo systemctl enable httpd
-sudo php-apex-mode steady
+sudo php-apex-mode auto
 ```
 
 ### Arch Linux
@@ -231,12 +231,12 @@ sha256sum --ignore-missing -c SHA256SUMS
 sudo pacman -U ./php-zts-full-8.4.21-1-x86_64.pkg.tar.zst ./mod-apex-0.1.7-1-x86_64.pkg.tar.zst
 ```
 
-Enable Apache at boot and apply the conservative steady settings:
+Enable Apache at boot and apply the automatic settings:
 
 ```bash
 sudo httpd -t
 sudo systemctl enable httpd
-sudo php-apex-mode steady
+sudo php-apex-mode auto
 ```
 
 ### Verify the server installation
@@ -284,7 +284,7 @@ Never mix the PHP runtime from one release with the module from another.
 After an upgrade, reapply and verify the profile:
 
 ```bash
-sudo php-apex-mode steady
+sudo php-apex-mode auto
 sudo apachectl -t
 ```
 
@@ -375,14 +375,16 @@ should not be loaded.
 
 ## Configure the server for the best performance
 
-### Steady profile—default for a 2-CPU, 2-GB server
+### Automatic profile—recommended default
 
-Start here. New native packages install this profile automatically. It gives
-Apache 64 PHP-ready workers, disables keep-alive, and keeps the single child
-persistent so connection-count recycling cannot interrupt the whole PHP pool.
+Start here. New native packages run this profile during installation. It uses
+twice the effective CPU count as the CPU budget and reserves 25% of memory
+(at least 256 MiB), budgeting 128 MiB for each active PHP worker. The lower
+budget wins. A 2-CPU, 2-GiB server therefore starts with four workers; this
+host's 16 CPUs and 7.5 GiB select 32. Keep-alive remains disabled.
 
 ```bash
-sudo php-apex-mode steady
+sudo php-apex-mode auto
 ```
 
 The command writes one PHP Apex performance file, validates Apache, and
@@ -394,10 +396,10 @@ Show the active settings at any time:
 php-apex-mode status
 ```
 
-If your application needs a different limit, choose 64 through 512 workers:
+If measurement supports a different limit, choose 1 through 512 workers:
 
 ```bash
-sudo APEX_MAX_REQUEST_WORKERS=64 php-apex-mode steady
+sudo APEX_MAX_REQUEST_WORKERS=8 php-apex-mode auto
 ```
 
 ### Throughput profile—optional for large servers
@@ -411,7 +413,7 @@ sudo php-apex-mode throughput
 
 This profile enables short keep-alive connections and raises the controlled
 worker pool to 256. It retains the 1,000-connection recycling limit. The
-64-worker steady profile remains the recommended starting point.
+automatic profile remains the recommended starting point.
 
 ### Configure the performance file manually
 
@@ -422,10 +424,11 @@ path for your distribution:
 - Fedora: `/etc/httpd/conf.d/php-apex-performance.conf`
 - Arch: `/etc/httpd/conf/conf.d/php-apex-performance.conf`
 
-This is the conservative 2-CPU, 2-GB steady profile:
+This is the safe fallback installed before automatic sizing runs on a
+2-CPU, 2-GiB server:
 
 ```apache
-# PHP Apex steady profile
+# PHP Apex automatically sized fallback
 KeepAlive Off
 MaxKeepAliveRequests 10000
 KeepAliveTimeout 1
@@ -433,11 +436,11 @@ KeepAliveTimeout 1
 <IfModule mpm_event_module>
 StartServers 1
 ServerLimit 1
-ThreadLimit 64
-ThreadsPerChild 64
-MinSpareThreads 64
-MaxSpareThreads 64
-MaxRequestWorkers 64
+ThreadLimit 4
+ThreadsPerChild 4
+MinSpareThreads 4
+MaxSpareThreads 4
+MaxRequestWorkers 4
 MaxConnectionsPerChild 0
 </IfModule>
 ```
@@ -457,9 +460,9 @@ sudo httpd -t
 sudo systemctl restart httpd
 ```
 
-For a different worker count, keep `ThreadsPerChild` and `ThreadLimit` at 64
-and round `ServerLimit` up so `ServerLimit × 64` covers
-`MaxRequestWorkers`. Keep the limit between 64 and 512.
+For a different worker count below 64, set `ThreadsPerChild` and `ThreadLimit`
+to that count. At 64 or above, keep both at 64 and round `ServerLimit` up so
+`ServerLimit × 64` covers `MaxRequestWorkers`.
 
 ## OPcache settings
 
@@ -615,20 +618,13 @@ docker pull practicalwebuser/mod_apex-apache:php8.4
 ```
 
 Prefer a native server installation? Use the matching packages above, run
-`php-apex-mode steady`, and let Apache serve PHP directly through its event
+`php-apex-mode auto`, and let Apache serve PHP directly through its event
 workers.
 
 ## License
 
-PHP Apex is licensed under the [GPL v3](LICENSE). You may use,
-modify, and redistribute it under that license. Modified files must be clearly
-identified, and the required copyright, license, and attribution notices must
-be retained.
-
-The GPL v3 does not grant permission to use the PHP Apex product
-name or branding to imply that a modified or third-party build is an official
-release or is endorsed by the PHP Apex maintainers. Descriptive references to
-the project's origin remain permitted by the license.
+PHP Apex is licensed under the [Apache License 2.0](LICENSE). See
+[NOTICE](NOTICE) for the required attribution notices.
 
 PHP, Apache HTTP Server, and bundled extensions remain under their respective
 licenses. Binary packages and container images include software from those

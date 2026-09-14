@@ -119,6 +119,7 @@ fi
 mkdir -p "$PKG_DIR/DEBIAN"
 mkdir -p "$PKG_DIR/usr/lib/apache2/modules"
 mkdir -p "$PKG_DIR/usr/local/sbin"
+mkdir -p "$PKG_DIR/usr/local/lib/php-apex"
 mkdir -p "$PKG_DIR/etc/apache2/mods-available"
 mkdir -p "$PKG_DIR/etc/apache2/conf-available"
 mkdir -p "$PKG_DIR/usr/share/doc/$PKG_NAME"
@@ -126,6 +127,8 @@ mkdir -p "$PKG_DIR/usr/share/doc/$PKG_NAME"
 # Binary/module + Apache module loader config
 install -m 0644 "$REPO_ROOT/.libs/mod_apex.so" "$PKG_DIR/usr/lib/apache2/modules/mod_apex.so"
 install -m 0755 "$REPO_ROOT/tools/apache_mode.sh" "$PKG_DIR/usr/local/sbin/php-apex-mode"
+install -m 0644 "$REPO_ROOT/packaging/apex-sizing.sh" \
+    "$PKG_DIR/usr/local/lib/php-apex/apex-sizing.sh"
 sed -E "s#^LoadFile[[:space:]]+.*#LoadFile $LIBPHP_PATH#" \
     "$PKG_ROOT/apex.load" > "$PKG_DIR/etc/apache2/mods-available/apex.load"
 chmod 0644 "$PKG_DIR/etc/apache2/mods-available/apex.load"

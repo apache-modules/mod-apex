@@ -6,6 +6,7 @@ pkgdesc='Apache module that embeds a persistent PHP ZTS runtime in event-MPM wor
 arch=('x86_64')
 url='https://github.com/apache-modules/mod-apex'
 license=('Apache-2.0')
+install='mod-apex.install'
 depends=('apache' 'php-zts-full')
 makedepends=('apache' 'base-devel' 'libarchive')
 source=("${pkgname}-${pkgver}.tar.gz" 'php-zts-full.pkg.tar.zst')
@@ -45,6 +46,8 @@ package() {
         "${pkgdir}/etc/httpd/conf/conf.d/php-apex-performance.conf"
     install -D -m 0755 tools/apache_mode.sh \
         "${pkgdir}/usr/local/sbin/php-apex-mode"
+    install -D -m 0644 packaging/apex-sizing.sh \
+        "${pkgdir}/usr/local/lib/php-apex/apex-sizing.sh"
     install -D -m 0644 LICENSE \
         "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
     install -D -m 0644 NOTICE \

@@ -1,0 +1,13 @@
+post_install() {
+    if [[ -x /usr/local/sbin/php-apex-mode ]] \
+        && httpd -M 2>/dev/null | grep -q 'mpm_event_module'; then
+        /usr/local/sbin/php-apex-mode auto || \
+            echo "WARNING: run 'sudo php-apex-mode auto' after Apache is available." >&2
+    else
+        echo "PHP Apex: enable mpm_event, then run 'sudo php-apex-mode auto'." >&2
+    fi
+}
+
+post_upgrade() {
+    post_install
+}

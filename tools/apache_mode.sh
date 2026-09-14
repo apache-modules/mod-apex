@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+sizing_lib="${APEX_SIZING_LIB:-}"
+if [[ -z "$sizing_lib" ]]; then
+    for candidate in \
+        "$script_dir/../packaging/apex-sizing.sh" \
+        "$script_dir/../lib/php-apex/apex-sizing.sh"; do
+        if [[ -r "$candidate" ]]; then
+            sizing_lib="$candidate"
+            break
+        fi
+    done
+fi
+if [[ -z "$sizing_lib" || ! -r "$sizing_lib" ]]; then
+    echo "PHP Apex sizing helper was not found." >&2
+    exit 2
+fi
+# shellcheck source=../packaging/apex-sizing.sh
+source "$sizing_lib"
+
 mode="${1:-status}"
 platform="${APEX_PLATFORM:-}"
 tuning_conf="${APEX_TUNING_CONF:-}"
@@ -14,16 +33,21 @@ usage() {
     cat <<EOF
 Usage:
   $(basename "$0") status
+  sudo $(basename "$0") auto
   sudo $(basename "$0") steady
   sudo $(basename "$0") throughput
 
 Profiles:
-  steady      Conservative 2-CPU/2-GB baseline with keep-alive disabled.
+  auto        Size workers from effective CPU and memory; keep-alive disabled.
+  steady      Backward-compatible alias for auto.
   throughput  Controlled 256-worker profile for higher traffic.
   status      Show the active PHP Apex performance file.
 
 Profile override:
-  APEX_MAX_REQUEST_WORKERS  Override the worker count (64-512).
+  APEX_MAX_REQUEST_WORKERS     Override the worker count (1-512).
+  APEX_CPU_COUNT              Override detected CPU count.
+  APEX_MEMORY_MB              Override detected memory in MiB.
+  APEX_MEMORY_PER_WORKER_MB   Memory budget per worker (default: 128).
 EOF
 }
 
@@ -96,25 +120,37 @@ require_managed_directory() {
     fi
 }
 
-calculate_steady_values() {
-    profile_name="steady"
-    max_request_workers="${APEX_MAX_REQUEST_WORKERS:-64}"
+calculate_auto_values() {
+    profile_name="auto"
+    if [[ -n "${APEX_MAX_REQUEST_WORKERS:-}" ]]; then
+        max_request_workers="$APEX_MAX_REQUEST_WORKERS"
+        printf 'Automatic profile: operator override MaxRequestWorkers=%s\n' \
+            "$max_request_workers"
+    else
+        apex_calculate_auto_sizing
+        max_request_workers="$apex_workers"
+        printf 'Automatic profile: CPU=%s memory=%s MiB MaxRequestWorkers=%s (limited by %s)\n' \
+            "$apex_cpu_count" "$apex_memory_mb" "$max_request_workers" \
+            "$apex_limiting_resource"
+    fi
     calculate_worker_layout 1
     keep_alive="Off"
     max_keep_alive_requests=10000
     keep_alive_timeout=1
     max_connections_per_child=0
-    printf 'Steady 2-CPU/2-GB profile: MaxRequestWorkers=%s\n' "$max_request_workers"
 }
 
 calculate_worker_layout() {
     local preferred_start_servers="$1"
     if [[ ! "$max_request_workers" =~ ^[1-9][0-9]*$ ]] \
-        || (( max_request_workers < 64 || max_request_workers > 512 )); then
-        echo "APEX_MAX_REQUEST_WORKERS must be an integer from 64 to 512." >&2
+        || (( max_request_workers < 1 || max_request_workers > 512 )); then
+        echo "APEX_MAX_REQUEST_WORKERS must be an integer from 1 to 512." >&2
         exit 2
     fi
     threads_per_child=64
+    if (( max_request_workers < threads_per_child )); then
+        threads_per_child=$max_request_workers
+    fi
     server_limit=$(((max_request_workers + threads_per_child - 1) / threads_per_child))
     start_servers="$preferred_start_servers"
     if (( start_servers > server_limit )); then
@@ -166,7 +202,7 @@ EOF
 show_status() {
     if [[ ! -f "$tuning_conf" ]]; then
         echo "No PHP Apex performance profile is active at $tuning_conf"
-        echo "Run: sudo $(basename "$0") steady"
+        echo "Run: sudo $(basename "$0") auto"
         return 1
     fi
     profile_name="$(sed -n 's/^# PHP Apex profile: //p' "$tuning_conf" | head -1)"
@@ -235,14 +271,14 @@ case "$mode" in
         select_platform_settings
         show_status
         ;;
-    steady|throughput)
+    auto|steady|throughput)
         detect_platform
         select_platform_settings
         require_managed_directory
         require_command_path "$apache_ctl" "Apache control command"
         require_command_path "$systemctl_cmd" "systemctl"
-        if [[ "$mode" == "steady" ]]; then
-            calculate_steady_values
+        if [[ "$mode" == "auto" || "$mode" == "steady" ]]; then
+            calculate_auto_values
         else
             set_throughput_values
         fi

@@ -15,6 +15,9 @@ run_entrypoint() {
         APEX_OPCACHE_CONF="$test_root/$name/opcache.ini" \
         APEX_TEST_PAGE_SOURCE="$repo_root/test.php" \
         APEX_TEST_PAGE_TARGET="$test_root/$name/html/test.php" \
+        APEX_SIZING_LIB="$repo_root/packaging/apex-sizing.sh" \
+        APEX_CPU_COUNT=2 \
+        APEX_MEMORY_MB=2048 \
         "$@" \
         "$entrypoint" /bin/true
 }
@@ -28,7 +31,9 @@ grep -Fx 'allow_url_fopen=1' "$test_root/default/opcache.ini"
 grep -Fx 'disable_functions=' "$test_root/default/opcache.ini"
 grep -Fx 'KeepAlive Off' "$test_root/default/apache.conf"
 grep -Fx '    ServerLimit 1' "$test_root/default/apache.conf"
-grep -Fx '    MaxRequestWorkers 64' "$test_root/default/apache.conf"
+grep -Fx '    ThreadLimit 4' "$test_root/default/apache.conf"
+grep -Fx '    ThreadsPerChild 4' "$test_root/default/apache.conf"
+grep -Fx '    MaxRequestWorkers 4' "$test_root/default/apache.conf"
 grep -Fx '    MaxConnectionsPerChild 0' "$test_root/default/apache.conf"
 if grep -Fq 'RemoteIPHeader' "$test_root/default/apache.conf"; then
     echo 'remote IP handling must remain disabled without APEX_TRUSTED_PROXY' >&2
@@ -63,6 +68,26 @@ grep -Fx '    RemoteIPTrustedProxy 173.245.48.0/20' "$test_root/proxy/apache.con
 run_entrypoint high-traffic APEX_KEEP_ALIVE=1 APEX_MAX_REQUEST_WORKERS=256
 grep -Fx 'KeepAlive On' "$test_root/high-traffic/apache.conf"
 grep -Fx '    MaxRequestWorkers 256' "$test_root/high-traffic/apache.conf"
+
+run_entrypoint memory-limited APEX_CPU_COUNT=16 APEX_MEMORY_MB=1024
+grep -Fx '    ThreadsPerChild 6' "$test_root/memory-limited/apache.conf"
+grep -Fx '    MaxRequestWorkers 6' "$test_root/memory-limited/apache.conf"
+
+if run_entrypoint invalid-cpu APEX_CPU_COUNT=0 \
+    >"$test_root/invalid-cpu.stdout" 2>"$test_root/invalid-cpu.stderr"; then
+    echo 'expected invalid APEX_CPU_COUNT to fail' >&2
+    exit 1
+fi
+grep -F 'APEX_CPU_COUNT must be a positive whole number' \
+    "$test_root/invalid-cpu.stderr"
+
+if run_entrypoint invalid-memory APEX_MEMORY_MB=invalid \
+    >"$test_root/invalid-memory.stdout" 2>"$test_root/invalid-memory.stderr"; then
+    echo 'expected invalid APEX_MEMORY_MB to fail' >&2
+    exit 1
+fi
+grep -F 'APEX_MEMORY_MB must be a positive whole number' \
+    "$test_root/invalid-memory.stderr"
 
 if run_entrypoint invalid APEX_OPCACHE_VALIDATE=2 \
     >"$test_root/invalid.stdout" 2>"$test_root/invalid.stderr"; then

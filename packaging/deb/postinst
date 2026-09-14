@@ -10,16 +10,13 @@ if [[ "$1" == "configure" ]]; then
     if command -v a2enmod >/dev/null 2>&1; then
         a2enmod apex >/dev/null || true
     fi
-    if command -v a2enconf >/dev/null 2>&1; then
-        a2enconf php-apex-performance >/dev/null || true
-    fi
-
-    if command -v apachectl >/dev/null 2>&1; then
-        apachectl -t || true
-    fi
-
-    if command -v systemctl >/dev/null 2>&1; then
-        systemctl reload apache2 >/dev/null 2>&1 || true
+    if [[ -x /usr/local/sbin/php-apex-mode ]] \
+        && apachectl -M 2>/dev/null | grep -q 'mpm_event_module'; then
+        if ! /usr/local/sbin/php-apex-mode auto; then
+            echo "WARNING: run 'sudo php-apex-mode auto' after Apache is available." >&2
+        fi
+    else
+        echo "PHP Apex: enable mpm_event, then run 'sudo php-apex-mode auto'." >&2
     fi
 fi
 

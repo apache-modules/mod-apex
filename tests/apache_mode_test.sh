@@ -42,6 +42,8 @@ run_mode() {
     APEX_ENABLE_CMD="$helper_dir/a2enconf" \
     APEX_DISABLE_CMD="$helper_dir/a2disconf" \
     APEX_TEST_RESTART_LOG="$fixture_root/restarts.log" \
+    APEX_CPU_COUNT="${APEX_TEST_CPU_COUNT:-2}" \
+    APEX_MEMORY_MB="${APEX_TEST_MEMORY_MB:-2048}" \
         "$command_under_test" "$mode"
 }
 
@@ -50,19 +52,26 @@ make_helpers "$helper_dir"
 
 steady_conf="$fixture_root/steady/php-apex-performance.conf"
 mkdir -p "$(dirname "$steady_conf")"
-run_mode steady "$steady_conf" "$helper_dir"
+run_mode auto "$steady_conf" "$helper_dir"
 assert_contains "$steady_conf" 'KeepAlive Off'
 assert_contains "$steady_conf" 'ServerLimit 1'
-assert_contains "$steady_conf" 'ThreadLimit 64'
-assert_contains "$steady_conf" 'ThreadsPerChild 64'
-assert_contains "$steady_conf" 'MaxRequestWorkers 64'
-assert_contains "$steady_conf" 'MaxSpareThreads 64'
+assert_contains "$steady_conf" 'ThreadLimit 4'
+assert_contains "$steady_conf" 'ThreadsPerChild 4'
+assert_contains "$steady_conf" 'MaxRequestWorkers 4'
+assert_contains "$steady_conf" 'MaxSpareThreads 4'
 assert_contains "$steady_conf" 'MaxConnectionsPerChild 0'
 assert_contains "$fixture_root/restarts.log" 'restart apache2'
 
 status_output="$(APEX_PLATFORM=debian APEX_TUNING_CONF="$steady_conf" "$command_under_test" status)"
-[[ "$status_output" == *'Profile: steady'* ]] || fail 'status does not identify the steady profile'
-[[ "$status_output" == *'MaxRequestWorkers 64'* ]] || fail 'status does not show worker count'
+[[ "$status_output" == *'Profile: auto'* ]] || fail 'status does not identify the auto profile'
+[[ "$status_output" == *'MaxRequestWorkers 4'* ]] || fail 'status does not show worker count'
+
+host_shape_conf="$fixture_root/host-shape/php-apex-performance.conf"
+mkdir -p "$(dirname "$host_shape_conf")"
+APEX_TEST_CPU_COUNT=16 APEX_TEST_MEMORY_MB=7531 \
+    run_mode auto "$host_shape_conf" "$helper_dir"
+assert_contains "$host_shape_conf" 'ThreadsPerChild 32'
+assert_contains "$host_shape_conf" 'MaxRequestWorkers 32'
 
 throughput_conf="$fixture_root/throughput/php-apex-performance.conf"
 mkdir -p "$(dirname "$throughput_conf")"
@@ -80,13 +89,13 @@ assert_contains "$override_conf" 'MaxRequestWorkers 512'
 
 invalid_conf="$fixture_root/invalid/php-apex-performance.conf"
 mkdir -p "$(dirname "$invalid_conf")"
-if APEX_MAX_REQUEST_WORKERS=513 run_mode steady "$invalid_conf" "$helper_dir" >/dev/null 2>&1; then
-    fail 'steady accepted more than 512 workers'
+if APEX_MAX_REQUEST_WORKERS=513 run_mode auto "$invalid_conf" "$helper_dir" >/dev/null 2>&1; then
+    fail 'auto accepted more than 512 workers'
 fi
 
 missing_parent="$fixture_root/missing/php-apex-performance.conf"
-if run_mode steady "$missing_parent" "$helper_dir" >/dev/null 2>&1; then
-    fail 'steady succeeded with a missing managed configuration directory'
+if run_mode auto "$missing_parent" "$helper_dir" >/dev/null 2>&1; then
+    fail 'auto succeeded with a missing managed configuration directory'
 fi
 [[ ! -e "$missing_parent" ]] || fail 'steady created a file in a missing managed directory'
 
@@ -95,8 +104,8 @@ mkdir -p "$(dirname "$rollback_conf")"
 printf '%s\n' '# existing operator file' > "$rollback_conf"
 before="$(cat "$rollback_conf")"
 : > "$fixture_root/restarts.log"
-if run_mode steady "$rollback_conf" "$helper_dir" apachectl-fail >/dev/null 2>&1; then
-    fail 'steady succeeded after Apache syntax validation failed'
+if run_mode auto "$rollback_conf" "$helper_dir" apachectl-fail >/dev/null 2>&1; then
+    fail 'auto succeeded after Apache syntax validation failed'
 fi
 after="$(cat "$rollback_conf")"
 [[ "$after" == "$before" ]] || fail 'syntax failure did not restore the previous managed file'

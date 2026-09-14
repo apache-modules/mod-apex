@@ -49,9 +49,11 @@ specific writable directories as named volumes or writable bind mounts.
 
 ## Resource limits and worker sizing
 
-Set CPU and memory limits in Docker, Compose, or Kubernetes. PHP Apex starts
-with a conservative 64-worker profile for a 2-CPU, 2-GB container, disables
-keep-alive, and keeps its single Apache child persistent.
+Set CPU and memory limits in Docker, Compose, or Kubernetes. PHP Apex detects
+those limits and sizes its worker pool automatically. It uses two workers per
+effective CPU, then caps that result to the memory available after reserving
+25% (at least 256 MiB) at 128 MiB per PHP worker. Keep-alive is disabled and
+the first Apache child remains persistent.
 
 ```yaml
 services:
@@ -65,8 +67,9 @@ services:
     mem_limit: 2g
 ```
 
-The default is 64 workers. For a measured high-traffic deployment, enable
-short keep-alive connections and raise the worker limit deliberately:
+A 2-CPU, 2-GiB container selects four workers. For a measured high-traffic
+deployment, enable short keep-alive connections and override the worker limit
+deliberately:
 
 ```bash
 docker run -d --name my-php-app \
@@ -77,7 +80,9 @@ docker run -d --name my-php-app \
   practicalwebuser/mod_apex-apache:php8.4
 ```
 
-`APEX_MAX_REQUEST_WORKERS` accepts whole numbers from 64 through 512.
+`APEX_MAX_REQUEST_WORKERS` accepts whole numbers from 1 through 512 and takes
+precedence over automatic sizing. `APEX_CPU_COUNT`, `APEX_MEMORY_MB`, and
+`APEX_MEMORY_PER_WORKER_MB` can override the detected sizing inputs.
 `APEX_KEEP_ALIVE` accepts `0` or `1` and defaults to `0`. Enable it only after
 measuring a representative high-traffic workload.
 

@@ -11,8 +11,9 @@ Run modern PHP applications with one web service and no separate PHP-FPM
 process pool. Keep Apache's event MPM without going back to legacy prefork
 mod_php.
 
-The image starts with a conservative 64-worker profile for a 2-CPU, 2-GB
-container, disables keep-alive, and keeps its single Apache child persistent.
+The image automatically sizes its worker pool from the container's effective
+CPU and memory limits. A 2-CPU, 2-GiB container selects four workers,
+disables keep-alive, and keeps its first Apache child persistent.
 
 ## Everything included
 
@@ -29,7 +30,7 @@ extensions already together:
 - Imagick and GD with JPEG, PNG, WebP, and FreeType support
 - curl, mbstring, intl, fileinfo, EXIF, BCMath, GMP, sodium, SOAP, XML,
   SimpleXML, XMLReader, XMLWriter, XSL, and ZIP
-- conservative Apache defaults with a 64-worker limit and keep-alive disabled
+- resource-aware Apache worker sizing with keep-alive disabled
 - hardened Apache defaults, container-friendly logs, and `/healthz`
 
 The runtime uses Debian Bookworm Slim. Compilers and build tools are not kept
@@ -63,14 +64,15 @@ separate writable volumes.
 - **Bring popular PHP applications.** The image includes OPcache, APCu,
   Redis, Imagick, curl, mbstring, intl, GD, PDO/MySQL, SQLite, zip, sodium,
   GMP, SOAP, XSL, and more.
-- **Container-friendly by default.** The image starts with the conservative
-  64-worker profile, sends logs to `docker logs`, and includes `/healthz`.
+- **Container-friendly by default.** The image detects cgroup CPU and memory
+  limits, sends logs to `docker logs`, and includes `/healthz`.
 
 ## Run it confidently
 
-Set CPU and memory limits with your container platform. PHP Apex keeps its
-conservative 64-worker default with keep-alive disabled unless you explicitly
-change those settings. For a 2-CPU, 2-GB container, start with:
+Set CPU and memory limits with your container platform. PHP Apex uses two
+workers per effective CPU, capped by a conservative memory budget. Keep-alive
+remains disabled unless explicitly enabled. For a 2-CPU, 2-GiB container,
+start with:
 
 ```bash
 docker run -d --name my-php-app \
@@ -80,7 +82,7 @@ docker run -d --name my-php-app \
 ```
 
 For a measured high-traffic deployment, enable keep-alive and set a worker
-limit from 64 to 512:
+limit from 1 to 512:
 
 ```bash
 docker run -d --name my-php-app \
@@ -92,8 +94,9 @@ docker run -d --name my-php-app \
   practicalwebuser/mod_apex-apache:php8.4
 ```
 
-Start with 64. Enable `APEX_KEEP_ALIVE=1` and raise the worker limit only for a
-measured high-traffic deployment. `APEX_KEEP_ALIVE` accepts only `0` or `1`.
+Let automatic sizing establish the baseline. Enable `APEX_KEEP_ALIVE=1` and
+override the worker limit only for a measured high-traffic deployment.
+`APEX_KEEP_ALIVE` accepts only `0` or `1`.
 
 The default `APEX_MAX_CONNECTIONS_PER_CHILD=0` keeps the single baseline child
 persistent. Multi-child deployments can test `1000` or `10000` to enable

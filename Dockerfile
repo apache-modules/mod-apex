@@ -153,6 +153,7 @@ COPY test.php /usr/local/share/mod-apex/test.php
 RUN printf 'ok\n' > /var/www/html/healthz \
     && chown -R www-data:www-data /var/www/html
 
+COPY --chmod=0644 packaging/apex-sizing.sh /usr/local/lib/php-apex/apex-sizing.sh
 COPY --chmod=0755 docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint
 
 LABEL org.opencontainers.image.title="PHP Apex" \

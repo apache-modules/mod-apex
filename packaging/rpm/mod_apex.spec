@@ -42,6 +42,8 @@ install -D -m 0644 docker/apex.conf \
     %{buildroot}/etc/httpd/conf.d/mod_apex.conf
 install -D -m 0755 tools/apache_mode.sh \
     %{buildroot}/usr/local/sbin/php-apex-mode
+install -D -m 0644 packaging/apex-sizing.sh \
+    %{buildroot}/usr/local/lib/php-apex/apex-sizing.sh
 install -D -m 0644 packaging/apache-wordpress.conf \
     %{buildroot}/etc/httpd/conf.d/php-apex-performance.conf
 
@@ -53,6 +55,16 @@ install -D -m 0644 packaging/apache-wordpress.conf \
 %config(noreplace) /etc/httpd/conf.d/mod_apex.conf
 %config(noreplace) /etc/httpd/conf.d/php-apex-performance.conf
 /usr/local/sbin/php-apex-mode
+/usr/local/lib/php-apex/apex-sizing.sh
+
+%post
+if [ -x /usr/local/sbin/php-apex-mode ] \
+    && httpd -M 2>/dev/null | grep -q 'mpm_event_module'; then
+    /usr/local/sbin/php-apex-mode auto || \
+        echo "WARNING: run 'sudo php-apex-mode auto' after Apache is available." >&2
+else
+    echo "PHP Apex: enable mpm_event, then run 'sudo php-apex-mode auto'." >&2
+fi
 
 %changelog
 * Sat Aug 01 2026 mod_apex maintainers <maintainers@example.com> - %{mod_apex_version}-1
