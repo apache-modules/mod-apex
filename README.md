@@ -60,12 +60,67 @@ direct PHP execution model without giving up the event MPM. It is especially
 useful for containerized PHP applications, dedicated application servers, and
 teams that want fewer moving parts between the web server and PHP.
 
-## Measured PHP performance
+## Measured production baseline
 
-These local tests used an AMD Ryzen 7 PRO 6850U, Apache `event` MPM, PHP 8.4
-ZTS, OPcache, and the same small PHP script for PHP Apex and PHP-FPM. They show
-why persistent connections matter as traffic increases.
+The current production gate runs an uncached WordPress workload in a container
+limited to exactly 2 CPUs and 2 GiB of memory. PHP Apex automatic tuning selected
+4 workers, disabled keep-alive, and left worker recycling unlimited. The test
+used Apache `event` MPM, PHP 8.4.25 ZTS, OPcache, and tracing JIT.
 
+| Measurement | 60-second baseline | 30-minute soak |
+| --- | ---: | ---: |
+| Concurrency | 64 | 64 |
+| Completed requests | 2,401 | 73,148 |
+| Failed requests | 0 | 0 |
+| Throughput | 40.02 req/s | 40.64 req/s |
+| Median latency | 1.616 s | 1.682 s (worst segment) |
+| p99 latency | 1.772 s | 1.874 s (worst segment) |
+| Container restarts | 0 | 0 |
+| OOM events | 0 | 0 |
+
+The soak was recorded as two contiguous ApacheBench segments because of the
+client's request-count limit. Across the combined 1,800 seconds, throughput was
+1.5% above the short baseline and worst-segment p99 latency increased by 5.8%.
+The container remained healthy with no crash signatures.
+
+### Memory efficiency at the production baseline
+
+These values are cgroup measurements for the complete Apache and PHP Apex
+container, not the RSS of an individual thread:
+
+| Resource | Measured result |
+| --- | ---: |
+| Container memory limit | 2,048 MiB |
+| Automatically configured PHP workers | 4 |
+| Warmed memory before the soak | 216.9 MiB |
+| Peak memory during the soak | 221.5 MiB |
+| Memory after the soak | 134.4 MiB |
+| Headroom at peak | 1,826.5 MiB (89.2%) |
+
+No current PHP-FPM run has been measured under the same 2-CPU, 2-GiB limits,
+worker count, application state, and traffic. The figures above therefore show
+that the current Apex profile is stable and comfortably inside its memory
+budget; they do not establish that Apex uses less memory than PHP-FPM.
+
+### JIT decision
+
+A separate 60-second WordPress test at concurrency 16 compared tracing JIT
+with JIT disabled. Tracing JIT was retained because it increased throughput by
+about 10% and improved tail latency on this workload.
+
+| Measurement | Tracing JIT, 128 MiB | JIT disabled |
+| --- | ---: | ---: |
+| Completed requests | 2,380 | 2,164 |
+| Failed requests | 0 | 0 |
+| Throughput | 39.66 req/s | 36.04 req/s |
+| Median latency | 411 ms | 474 ms |
+| p99 latency | 487 ms | 507 ms |
+| Maximum latency | 501 ms | 568 ms |
+
+### Historical PHP microbenchmark with PHP-FPM
+
+An earlier local comparison used an AMD Ryzen 7 PRO 6850U, Apache `event` MPM,
+PHP 8.4 ZTS, OPcache, and the same small PHP script for PHP Apex and PHP-FPM.
 With keep-alive disabled at 100 connections, both handlers delivered about the
 same throughput:
 
@@ -88,18 +143,13 @@ At 300 connections, measured p99 latency was 51.74 ms for PHP Apex and
 79.55 ms for PHP-FPM. At 1,000 connections, it was 279.96 ms for PHP Apex and
 310.14 ms for PHP-FPM.
 
-These are results from one machine running a simple local workload, not a
-guarantee for every application. Database calls, application code, network
-latency, extensions, CPU limits, and memory limits all affect real-world
-results. Run your own application under representative traffic before choosing
-production capacity.
-
-### WordPress comparison with PHP-FPM
+### Historical WordPress profile comparison with PHP-FPM
 
 WordPress core was tested with a configured 60-minute load using 32 anonymous
 and 8 logged-in connections running together. PHP Apex used its 128-worker
 steady profile. PHP-FPM used a static 32-worker pool, with Apache and FPM memory
-counted together.
+counted together. This was a comparison of two differently sized high-traffic
+profiles, not an equal-resource efficiency test.
 
 | Traffic | PHP Apex | PHP-FPM | Result |
 | --- | ---: | ---: | ---: |
@@ -112,13 +162,14 @@ counted together.
 | Anonymous | 230 ms | 236 ms | 583 ms | 380 ms |
 | Logged-in | 335 ms | 223 ms | 616 ms | 358 ms |
 
-PHP Apex favored total throughput, especially for anonymous pages. PHP-FPM
-favored memory efficiency and was faster for the logged-in dashboard workload:
+PHP Apex favored total throughput, especially for anonymous pages. PHP-FPM was
+faster for the logged-in dashboard workload and the smaller FPM profile used
+less total memory:
 
-| Combined service memory | PHP Apex | Apache + PHP-FPM |
-| --- | ---: | ---: |
-| Average | 979.6 MiB | 435.7 MiB |
-| Peak | 1,038.8 MiB | 466.6 MiB |
+| Historical profile | Worker limit | Average service memory | Peak service memory |
+| --- | ---: | ---: | ---: |
+| PHP Apex steady | 128 | 979.6 MiB | 1,038.8 MiB |
+| Apache + PHP-FPM static | 32 | 435.7 MiB | 466.6 MiB |
 
 Every sampled home-page and dashboard health check returned HTTP 200 in both
 runs. The PHP-FPM run recorded 80 request timeouts; the PHP Apex report did not
@@ -126,11 +177,20 @@ contain socket errors. The FPM host stalled for about 15.5 minutes, so `wrk`
 reported 75.5 minutes of elapsed wall time for its configured 60-minute run.
 Its requests-per-second figures use that full elapsed time.
 
-These results show the choice clearly on this server: PHP Apex delivered 22.4%
-more combined WordPress throughput, while the 32-worker FPM pool used about 55%
-less memory. Worker counts were deliberately different, so treat this as a
-comparison of the tested production-style profiles—not equal-sized pools.
-Third-party themes and plugins should still be checked in staging.
+In those tested profiles, PHP Apex delivered 22.4% more combined WordPress
+throughput while the 32-worker FPM pool used about 55% less total memory than
+the 128-worker Apex pool. That does not mean PHP-FPM was 55% more
+memory-efficient: the worker limits differed by 4x, and the FPM run included
+timeouts and a long host stall. On servers with more CPU and RAM, Apex automatic
+tuning can select a larger worker pool and provide higher aggregate throughput,
+but the gain depends on the application and does not guarantee lower memory per
+request or per worker. Do not copy the historical worker counts manually; let
+automatic tuning size Apex to the server, then validate it with representative
+traffic. Third-party themes and plugins should still be checked in staging.
+
+All benchmark results are from one machine and are not guarantees for every
+application. Database calls, application code, network latency, extensions,
+CPU limits, and memory limits all affect real-world results.
 
 ## Recommended: launch the all-in-one image
 
