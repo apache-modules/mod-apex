@@ -69,6 +69,16 @@ run_entrypoint high-traffic APEX_KEEP_ALIVE=1 APEX_MAX_REQUEST_WORKERS=256
 grep -Fx 'KeepAlive On' "$test_root/high-traffic/apache.conf"
 grep -Fx '    MaxRequestWorkers 256' "$test_root/high-traffic/apache.conf"
 
+run_entrypoint exact-layout APEX_MAX_REQUEST_WORKERS=65
+grep -Fx '    ServerLimit 5' "$test_root/exact-layout/apache.conf"
+grep -Fx '    ThreadsPerChild 13' "$test_root/exact-layout/apache.conf"
+grep -Fx '    MaxRequestWorkers 65' "$test_root/exact-layout/apache.conf"
+
+run_entrypoint normalized-layout APEX_MAX_REQUEST_WORKERS=67
+grep -Fx '    ServerLimit 2' "$test_root/normalized-layout/apache.conf"
+grep -Fx '    ThreadsPerChild 33' "$test_root/normalized-layout/apache.conf"
+grep -Fx '    MaxRequestWorkers 66' "$test_root/normalized-layout/apache.conf"
+
 run_entrypoint memory-limited APEX_CPU_COUNT=16 APEX_MEMORY_MB=1024
 grep -Fx '    ThreadsPerChild 6' "$test_root/memory-limited/apache.conf"
 grep -Fx '    MaxRequestWorkers 6' "$test_root/memory-limited/apache.conf"

@@ -81,6 +81,14 @@ docker run -d --name my-php-app \
   practicalwebuser/mod_apex-apache:php8.4
 ```
 
+**Important:** do not manually override Apache's `ServerLimit`, `ThreadLimit`,
+`ThreadsPerChild`, or `MaxRequestWorkers` directives. The PHP Apex entrypoint
+automatically generates these settings as one valid layout from the available
+CPU and memory. Changing only one directive can make Apache silently run a
+different number of workers, increasing memory use or reducing performance.
+Use the documented `APEX_*` environment variables only when a measured
+deployment requires an override.
+
 For a measured high-traffic deployment, enable keep-alive and set a worker
 limit from 1 to 512:
 
@@ -96,7 +104,10 @@ docker run -d --name my-php-app \
 
 Let automatic sizing establish the baseline. Enable `APEX_KEEP_ALIVE=1` and
 override the worker limit only for a measured high-traffic deployment.
-`APEX_KEEP_ALIVE` accepts only `0` or `1`.
+`APEX_KEEP_ALIVE` accepts only `0` or `1`. The entrypoint always generates a
+valid event-MPM layout; if a worker override cannot be represented exactly
+within its eight-child, 64-thread envelope, it logs the small safe downward
+adjustment.
 
 The default `APEX_MAX_CONNECTIONS_PER_CHILD=0` keeps the single baseline child
 persistent. Multi-child deployments can test `1000` or `10000` to enable

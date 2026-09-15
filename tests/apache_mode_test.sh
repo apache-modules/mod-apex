@@ -73,6 +73,20 @@ APEX_TEST_CPU_COUNT=16 APEX_TEST_MEMORY_MB=7531 \
 assert_contains "$host_shape_conf" 'ThreadsPerChild 32'
 assert_contains "$host_shape_conf" 'MaxRequestWorkers 32'
 
+exact_layout_conf="$fixture_root/exact-layout/php-apex-performance.conf"
+mkdir -p "$(dirname "$exact_layout_conf")"
+APEX_MAX_REQUEST_WORKERS=65 run_mode auto "$exact_layout_conf" "$helper_dir"
+assert_contains "$exact_layout_conf" 'ServerLimit 5'
+assert_contains "$exact_layout_conf" 'ThreadsPerChild 13'
+assert_contains "$exact_layout_conf" 'MaxRequestWorkers 65'
+
+normalized_layout_conf="$fixture_root/normalized-layout/php-apex-performance.conf"
+mkdir -p "$(dirname "$normalized_layout_conf")"
+APEX_MAX_REQUEST_WORKERS=67 run_mode auto "$normalized_layout_conf" "$helper_dir"
+assert_contains "$normalized_layout_conf" 'ServerLimit 2'
+assert_contains "$normalized_layout_conf" 'ThreadsPerChild 33'
+assert_contains "$normalized_layout_conf" 'MaxRequestWorkers 66'
+
 throughput_conf="$fixture_root/throughput/php-apex-performance.conf"
 mkdir -p "$(dirname "$throughput_conf")"
 run_mode throughput "$throughput_conf" "$helper_dir"

@@ -383,6 +383,13 @@ twice the effective CPU count as the CPU budget and reserves 25% of memory
 budget wins. A 2-CPU, 2-GiB server therefore starts with four workers; this
 host's 16 CPUs and 7.5 GiB select 32. Keep-alive remains disabled.
 
+> **Important:** let `php-apex-mode auto` own the event-MPM worker settings.
+> Do not manually change `ServerLimit`, `ThreadLimit`, `ThreadsPerChild`, or
+> `MaxRequestWorkers` independently. These directives must form one valid
+> layout; a mismatch can make Apache silently raise or lower the effective
+> worker count, increasing memory use or reducing performance. Run automatic
+> tuning again after changing the server's CPU or memory allocation.
+
 ```bash
 sudo php-apex-mode auto
 ```
@@ -415,10 +422,12 @@ This profile enables short keep-alive connections and raises the controlled
 worker pool to 256. It retains the 1,000-connection recycling limit. The
 automatic profile remains the recommended starting point.
 
-### Configure the performance file manually
+### Advanced: configure the performance file manually
 
-If you prefer to manage Apache yourself, create the performance file at the
-path for your distribution:
+Manual configuration is intended only for operators who have measured their
+application and understand Apache event-MPM sizing. Prefer
+`sudo php-apex-mode auto`. If you must manage Apache yourself, create the
+performance file at the path for your distribution:
 
 - Debian/Ubuntu: `/etc/apache2/conf-available/php-apex-performance.conf`
 - Fedora: `/etc/httpd/conf.d/php-apex-performance.conf`
@@ -460,9 +469,11 @@ sudo httpd -t
 sudo systemctl restart httpd
 ```
 
-For a different worker count below 64, set `ThreadsPerChild` and `ThreadLimit`
-to that count. At 64 or above, keep both at 64 and round `ServerLimit` up so
-`ServerLimit × 64` covers `MaxRequestWorkers`.
+For a different worker count, ensure `MaxRequestWorkers` exactly equals
+`ServerLimit × ThreadsPerChild`, with `ThreadLimit` equal to
+`ThreadsPerChild`. Apache otherwise silently reduces `MaxRequestWorkers` to a
+valid multiple. `php-apex-mode` calculates this layout for you, keeping at
+most 64 threads per child and eight children.
 
 ## OPcache settings
 

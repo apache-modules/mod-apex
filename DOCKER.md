@@ -55,6 +55,14 @@ effective CPU, then caps that result to the memory available after reserving
 25% (at least 256 MiB) at 128 MiB per PHP worker. Keep-alive is disabled and
 the first Apache child remains persistent.
 
+> **Important:** the container entrypoint must remain responsible for the
+> event-MPM settings. Do not manually replace `ServerLimit`, `ThreadLimit`,
+> `ThreadsPerChild`, or `MaxRequestWorkers` in Apache configuration. A
+> mismatched set can cause Apache to silently change the effective worker
+> count, which can increase memory use or reduce throughput. Set container CPU
+> and memory limits, then let automatic tuning calculate the matching layout.
+> Use the documented `APEX_*` variables for deliberate, measured overrides.
+
 ```yaml
 services:
   php:
@@ -84,7 +92,10 @@ docker run -d --name my-php-app \
 precedence over automatic sizing. `APEX_CPU_COUNT`, `APEX_MEMORY_MB`, and
 `APEX_MEMORY_PER_WORKER_MB` can override the detected sizing inputs.
 `APEX_KEEP_ALIVE` accepts `0` or `1` and defaults to `0`. Enable it only after
-measuring a representative high-traffic workload.
+measuring a representative high-traffic workload. The entrypoint chooses a
+valid event-MPM layout of up to eight children and 64 threads per child. If an
+unfactorable worker value needs a small downward adjustment, startup reports
+both the requested and effective limits.
 
 `MaxConnectionsPerChild` defaults to `0`, which keeps the single baseline
 child persistent. It counts TCP connections, not PHP requests; one keep-alive

@@ -124,16 +124,15 @@ calculate_auto_values() {
     profile_name="auto"
     if [[ -n "${APEX_MAX_REQUEST_WORKERS:-}" ]]; then
         max_request_workers="$APEX_MAX_REQUEST_WORKERS"
-        printf 'Automatic profile: operator override MaxRequestWorkers=%s\n' \
-            "$max_request_workers"
+        sizing_summary="operator override"
     else
         apex_calculate_auto_sizing
         max_request_workers="$apex_workers"
-        printf 'Automatic profile: CPU=%s memory=%s MiB MaxRequestWorkers=%s (limited by %s)\n' \
-            "$apex_cpu_count" "$apex_memory_mb" "$max_request_workers" \
-            "$apex_limiting_resource"
+        sizing_summary="CPU=${apex_cpu_count} memory=${apex_memory_mb} MiB, limited by ${apex_limiting_resource}"
     fi
     calculate_worker_layout 1
+    printf 'Automatic profile: %s MaxRequestWorkers=%s\n' \
+        "$sizing_summary" "$max_request_workers"
     keep_alive="Off"
     max_keep_alive_requests=10000
     keep_alive_timeout=1
@@ -147,23 +146,17 @@ calculate_worker_layout() {
         echo "APEX_MAX_REQUEST_WORKERS must be an integer from 1 to 512." >&2
         exit 2
     fi
-    threads_per_child=64
-    if (( max_request_workers < threads_per_child )); then
-        threads_per_child=$max_request_workers
+    apex_calculate_mpm_layout "$max_request_workers" "$preferred_start_servers"
+    if (( apex_mpm_workers != max_request_workers )); then
+        printf 'Adjusted MaxRequestWorkers from %s to %s for a valid event-MPM layout.\n' \
+            "$max_request_workers" "$apex_mpm_workers"
     fi
-    server_limit=$(((max_request_workers + threads_per_child - 1) / threads_per_child))
-    start_servers="$preferred_start_servers"
-    if (( start_servers > server_limit )); then
-        start_servers=$server_limit
-    fi
-    min_spare_threads=$threads_per_child
-    if (( min_spare_threads > max_request_workers )); then
-        min_spare_threads=$max_request_workers
-    fi
-    max_spare_threads=$((threads_per_child * server_limit))
-    if (( max_spare_threads > max_request_workers )); then
-        max_spare_threads=$max_request_workers
-    fi
+    max_request_workers=$apex_mpm_workers
+    threads_per_child=$apex_mpm_threads_per_child
+    server_limit=$apex_mpm_server_limit
+    start_servers=$apex_mpm_start_servers
+    min_spare_threads=$apex_mpm_min_spare_threads
+    max_spare_threads=$apex_mpm_max_spare_threads
 }
 
 set_throughput_values() {

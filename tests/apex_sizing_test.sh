@@ -23,6 +23,20 @@ assert_sizing 16 7531 32
 assert_sizing 16 1024 6
 assert_sizing 1 512 2
 
+apex_calculate_mpm_layout 65 1
+[[ "$apex_mpm_workers" == 65 ]] || fail '65-worker layout was not preserved exactly'
+[[ "$apex_mpm_server_limit" == 5 ]] || fail '65-worker layout did not select five servers'
+[[ "$apex_mpm_threads_per_child" == 13 ]] || fail '65-worker layout did not select 13 threads per child'
+
+apex_calculate_mpm_layout 67 1
+[[ "$apex_mpm_workers" == 66 ]] || fail '67-worker layout was not safely normalized to 66'
+[[ $((apex_mpm_server_limit * apex_mpm_threads_per_child)) == "$apex_mpm_workers" ]] \
+    || fail 'normalized MPM layout does not equal MaxRequestWorkers'
+
+apex_calculate_mpm_layout 512 4
+[[ "$apex_mpm_workers" == 512 ]] || fail '512-worker layout was not preserved exactly'
+[[ "$apex_mpm_start_servers" == 4 ]] || fail 'throughput start-server preference was not preserved'
+
 sizing_fixture="$(mktemp -d)"
 trap 'rm -rf "$sizing_fixture"' EXIT
 printf '150000 100000\n' > "$sizing_fixture/cpu.max"
