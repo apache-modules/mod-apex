@@ -191,10 +191,10 @@ curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/SH
 ### Debian or Ubuntu
 
 ```bash
-curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/php-zts-full_8.4.21-1_amd64.deb
+curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/php-zts-full_8.4.25-1_amd64.deb
 curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/mod-apex_0.1.7_amd64.deb
 sha256sum --ignore-missing -c SHA256SUMS
-sudo apt install ./php-zts-full_8.4.21-1_amd64.deb ./mod-apex_0.1.7_amd64.deb
+sudo apt install ./php-zts-full_8.4.25-1_amd64.deb ./mod-apex_0.1.7_amd64.deb
 ```
 
 Switch Apache to the threaded `event` MPM, enable PHP Apex, and apply the
@@ -213,10 +213,10 @@ sudo php-apex-mode auto
 ### Fedora
 
 ```bash
-curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/php-zts-full-8.4.21-1.fc44.x86_64.rpm
+curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/php-zts-full-8.4.25-1.fc44.x86_64.rpm
 curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/mod_apex-0.1.7-1.fc44.x86_64.rpm
 sha256sum --ignore-missing -c SHA256SUMS
-sudo dnf install ./php-zts-full-8.4.21-1.fc44.x86_64.rpm ./mod_apex-0.1.7-1.fc44.x86_64.rpm
+sudo dnf install ./php-zts-full-8.4.25-1.fc44.x86_64.rpm ./mod_apex-0.1.7-1.fc44.x86_64.rpm
 sudo httpd -t
 sudo systemctl enable httpd
 sudo php-apex-mode auto
@@ -225,10 +225,10 @@ sudo php-apex-mode auto
 ### Arch Linux
 
 ```bash
-curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/php-zts-full-8.4.21-1-x86_64.pkg.tar.zst
+curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/php-zts-full-8.4.25-1-x86_64.pkg.tar.zst
 curl -fLO https://github.com/apache-modules/mod-apex/releases/latest/download/mod-apex-0.1.7-1-x86_64.pkg.tar.zst
 sha256sum --ignore-missing -c SHA256SUMS
-sudo pacman -U ./php-zts-full-8.4.21-1-x86_64.pkg.tar.zst ./mod-apex-0.1.7-1-x86_64.pkg.tar.zst
+sudo pacman -U ./php-zts-full-8.4.25-1-x86_64.pkg.tar.zst ./mod-apex-0.1.7-1-x86_64.pkg.tar.zst
 ```
 
 Enable Apache at boot and apply the automatic settings:

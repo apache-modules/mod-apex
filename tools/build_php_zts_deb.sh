@@ -71,13 +71,21 @@ if [[ ! -x "$STAGE_PREFIX/bin/php" ]]; then
     exit 1
 fi
 
-# Auto-derive runtime library Depends from the actual linked shared objects
-# (ldd) mapped back to the owning apt package (dpkg -S), rather than a
-# hand-typed list -- this is what makes the same script correct on Debian
-# 12/13 and Ubuntu 22.04/24.04 as long as it's run inside each target.
+# Auto-derive runtime library Depends from every packaged ELF entry point and
+# shared object (including PECL modules), mapped back to the owning apt package
+# with dpkg -S. Scanning only php and libphp.so misses transitive requirements
+# that are unique to extensions, such as imagick.so's libgomp dependency.
+# Deriving the complete set is what makes the same script correct on Debian
+# 12/13 and Ubuntu 22.04/24.04 when run inside each actual target.
 echo "Resolving shared library dependencies ..."
+mapfile -t linked_files < <(
+    {
+        printf '%s\n' "$STAGE_PREFIX/bin/php" "$STAGE_PREFIX/lib/libphp.so"
+        find "$STAGE_PREFIX" -type f -name '*.so' -print
+    } | sort -u
+)
 mapfile -t so_paths < <(
-    ldd "$STAGE_PREFIX/bin/php" "$STAGE_PREFIX/lib/libphp.so" 2>/dev/null \
+    ldd "${linked_files[@]}" 2>/dev/null \
         | awk '/=>/ {print $3} !/=>/ && /\// {print $1}' \
         | grep -v '^$' \
         | sort -u

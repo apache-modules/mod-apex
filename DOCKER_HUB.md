@@ -21,7 +21,7 @@ The image is ready with the web server, PHP runtime, module wiring, and common
 extensions already together:
 
 - Apache 2.4 using the event MPM
-- PHP 8.4.21 ZTS with the embed SAPI
+- PHP 8.4.25 ZTS with the embed SAPI
 - PHP Apex (`mod_apex`) enabled for `.php` files
 - OPcache with JIT support and APCu
 - Redis for application caching and sessions
