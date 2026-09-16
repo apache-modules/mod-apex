@@ -39,6 +39,8 @@ in the published runtime image.
 ## Start your PHP app
 
 ```bash
+mkdir -p "$(pwd)/app"
+test -e "$(pwd)/app/healthz" || printf 'ok\n' > "$(pwd)/app/healthz"
 docker pull practicalwebuser/mod_apex-apache:php8.4
 docker run -d --name my-php-app \
   --cpus=2 --memory=2g \
@@ -52,6 +54,12 @@ Open `http://your-server:8080`. Your application belongs in `./app`.
 The example mounts application code read-only. If your application writes
 uploads, cache files, or generated content, mount only those directories as
 separate writable volumes.
+
+A bind mount on `/var/www/html` hides the image's bundled static `/healthz`, so
+the example creates a replacement in the mounted application. Keep that file
+in the deployed document root, or bake the application into a derived image;
+otherwise Docker reports the container as unhealthy when its health check gets
+a 404 response.
 
 ## Why PHP Apex
 
@@ -96,7 +104,7 @@ limit from 1 to 512:
 docker run -d --name my-php-app \
   --cpus=2 --memory=2g \
   -e APEX_KEEP_ALIVE=1 \
-  -e APEX_MAX_REQUEST_WORKERS=256 \
+  -e APEX_MAX_REQUEST_WORKERS=8 \
   -p 8080:80 \
   -v "$(pwd)/app:/var/www/html:ro" \
   practicalwebuser/mod_apex-apache:php8.4
@@ -177,8 +185,11 @@ docker logs my-php-app
 
 `/healthz` is a small static check for container and load-balancer monitoring.
 The image does not publish `/test.php` by default. You can temporarily set
-`APEX_ENABLE_TEST_PAGE=1` for a private PHP smoke test; disable it before
-exposing the container publicly.
+`APEX_ENABLE_TEST_PAGE=1` for a private PHP smoke test. That option overwrites
+`/var/www/html/test.php`, requires a writable document root, and is not
+compatible with the read-only bind mount above. On a writable host mount, the
+file persists after the container stops; delete it and remove the setting
+before public exposure.
 
 The image serves HTTP on port 80. Put TLS certificates and public internet
 traffic at your reverse proxy or load balancer.

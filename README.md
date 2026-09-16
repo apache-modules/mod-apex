@@ -199,6 +199,8 @@ worker profile, and the full extension set in one image. Bring your application
 and set the container limits; the request stack is already assembled.
 
 ```bash
+mkdir -p "$PWD/public"
+test -e "$PWD/public/healthz" || printf 'ok\n' > "$PWD/public/healthz"
 docker pull practicalwebuser/mod_apex-apache:php8.4
 docker run -d \
   --name php-apex \
@@ -212,9 +214,19 @@ Open `http://SERVER-IP:8080` in a browser. Put your PHP application in the
 local `public` folder or replace the volume path with your application’s
 document root.
 
+Mounting an application over `/var/www/html` also hides files supplied there
+by the image, including the built-in `/healthz`. The example creates a static
+replacement in the mounted document root so Docker's health check keeps
+working. Alternatively, build a derived image with
+`COPY public/ /var/www/html/`; copying the application preserves the health file
+unless the application replaces it.
+
 For production, set CPU and memory limits outside the image:
 
 ```bash
+if [ ! -e /srv/my-app/public/healthz ]; then
+  printf 'ok\n' | sudo tee /srv/my-app/public/healthz >/dev/null
+fi
 docker run -d \
   --name php-apex \
   --restart unless-stopped \
@@ -598,8 +610,14 @@ The function list is empty by default because legitimate applications may use
 `APEX_ALLOW_URL_FOPEN` accepts `0` or `1` and defaults to `1`.
 
 The image does not expose `/test.php` by default. Set
-`APEX_ENABLE_TEST_PAGE=1` only for a temporary private smoke test, then remove
-the setting before exposing the container publicly.
+`APEX_ENABLE_TEST_PAGE=1` only for a temporary private smoke test. The
+entrypoint overwrites `/var/www/html/test.php`, so the path must not contain an
+application file you need to preserve. Because the option requires a writable
+document root, it fails with the read-only bind mount shown above. On a
+writable host mount, disabling the variable does not remove the generated
+file: delete `test.php` from the mounted content and remove the setting before
+public exposure. For a read-only mount, provide a private application probe in
+the mounted content instead.
 
 When the container runs behind a trusted reverse proxy, set its network CIDR
 so PHP receives the resolved visitor address in `REMOTE_ADDR`:

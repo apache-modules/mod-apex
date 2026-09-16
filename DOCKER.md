@@ -31,6 +31,8 @@ root so it can bind port 80, then its request workers run as `www-data`.
 Put your PHP application in an `app` folder, then run:
 
 ```bash
+mkdir -p "$(pwd)/app"
+test -e "$(pwd)/app/healthz" || printf 'ok\n' > "$(pwd)/app/healthz"
 docker pull practicalwebuser/mod_apex-apache:php8.4
 docker run -d --name my-php-app \
   --cpus=2 --memory=2g \
@@ -46,6 +48,15 @@ load balancer. Do not put private keys or application secrets in the image.
 The application mount is read-only above. That is a good default. If your
 application needs uploads, cache files, or generated media, mount only those
 specific writable directories as named volumes or writable bind mounts.
+
+The image contains a static `/healthz` file, but a bind mount on
+`/var/www/html` replaces that entire directory. The example therefore creates
+the same static file in the mounted application before starting the container.
+Keep that file in the deployed document root, or bake the application into a
+derived image with `COPY app/ /var/www/html/`; copying preserves the image's
+existing health file unless the application supplies a replacement. Without a
+reachable `/healthz`, Docker correctly reports the container as unhealthy even
+when Apache itself is running.
 
 ## Resource limits and worker sizing
 
@@ -75,6 +86,9 @@ services:
     mem_limit: 2g
 ```
 
+This Compose example assumes `./app/healthz` exists for the same reason as the
+bind-mount example above.
+
 A 2-CPU, 2-GiB container selects four workers. For a measured high-traffic
 deployment, enable short keep-alive connections and override the worker limit
 deliberately:
@@ -83,7 +97,7 @@ deliberately:
 docker run -d --name my-php-app \
   --cpus=2 --memory=2g \
   -e APEX_KEEP_ALIVE=1 \
-  -e APEX_MAX_REQUEST_WORKERS=256 \
+  -e APEX_MAX_REQUEST_WORKERS=8 \
   -p 8080:80 \
   practicalwebuser/mod_apex-apache:php8.4
 ```
@@ -184,8 +198,14 @@ Apache access and diagnostic logs go to the container log stream, so `docker
 logs` and your platform's log collector receive them automatically.
 
 The image does not publish `/test.php` by default. For a short-lived private
-smoke test, set `APEX_ENABLE_TEST_PAGE=1`; remove that setting before exposing
-the container publicly. The variable accepts only `0` or `1`.
+smoke test, set `APEX_ENABLE_TEST_PAGE=1`. The variable accepts only `0` or
+`1`. The entrypoint overwrites `/var/www/html/test.php`, so use this only when
+that path is disposable and does not belong to the application. It also means
+the option cannot be combined with a read-only bind mount over the document
+root. If the document root is a writable host mount, the generated file
+persists after the container stops: delete `test.php` from the mounted content,
+remove the setting, and then expose the container publicly. With a read-only
+application mount, provide your own private probe instead.
 
 ## Reverse proxies and real visitor addresses
 
