@@ -681,7 +681,7 @@ workers.
 
 ## License
 
-PHP Apex is licensed under the [Apache License 2.0](LICENSE). See
+PHP Apex is licensed under the [GPL-3.0](LICENSE). See
 [NOTICE](NOTICE) for the required attribution notices.
 
 PHP, Apache HTTP Server, and bundled extensions remain under their respective
