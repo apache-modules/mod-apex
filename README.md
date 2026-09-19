@@ -60,6 +60,44 @@ direct PHP execution model without giving up the event MPM. It is especially
 useful for containerized PHP applications, dedicated application servers, and
 teams that want fewer moving parts between the web server and PHP.
 
+An earlier local PHP microbenchmark found PHP Apex faster than PHP-FPM
+**especially with HTTP keep-alive enabled**. On the same small PHP script, with
+Apache `event` MPM, PHP 8.4 ZTS, and OPcache, Apex delivered 33.9%–52.2% more
+requests per second across 100–1,000 connections. At 300 connections, it
+served 41,429 req/s versus PHP-FPM's 27,573 req/s. With keep-alive disabled at
+100 connections, the results were nearly equal (9,820 versus 9,987 req/s).
+These historical results are from one machine and a synthetic workload; they
+are not a PHP-FPM comparison for the current WordPress production baseline.
+
+## Security compared with legacy mod_php
+
+PHP Apex ships with several defensive defaults that an unconfigured legacy
+mod_php deployment may lack. The module returns a generic fatal-error page
+unless `ApexVerboseErrors` is explicitly enabled. It refuses to execute a PHP
+path with the wrong handler mapping or a target that is not a regular file, and
+it catches PHP startup failures so they return an error instead of taking down
+the Apache child. Its build script requests stack protection, fortified libc
+calls, format-string checks, and linker hardening.
+
+The supplied Docker image suppresses PHP and Apache version strings in response
+headers, disables HTTP TRACE and directory indexes, restricts `.htaccess`
+overrides to rewrite directives, and defaults session cookies to `HttpOnly` and
+`SameSite=Lax`. Its runtime stage omits the compiler toolchain and development
+headers, and its sample PHP test page stays
+outside the document root unless explicitly enabled. A read-only application
+mount is supported. Operators can also opt into disabling command-execution
+functions and URL-aware file wrappers; **neither restriction is enabled by
+default** because applications may need them. Disabling URL-aware file wrappers
+does not block other HTTP clients such as cURL. See
+[Docker security controls](#docker-security-controls) for the image settings.
+
+These are configuration and build safeguards, **not a process-isolation
+advantage**. Like mod_php, PHP Apex runs application code inside Apache workers
+with the worker's operating-system privileges. A hardened mod_php deployment
+can use comparable controls. A read-only mount or a reduced runtime image does
+not sandbox PHP; use separate processes or containers when you need isolation
+between applications or untrusted tenants.
+
 ## Measured production baseline
 
 The current production gate runs an uncached WordPress workload in a container
@@ -564,8 +602,10 @@ must validate and sanitize the forwarded header or be explicitly trusted.
 
 The container disables unrestricted `.htaccess` overrides while retaining the
 four rewrite directives used by standard WordPress permalinks. `mod_apex`
-registers no `php_value` or `php_admin_value` directive, so tenants cannot use
-those names to undo `disable_functions`; Apache rejects them as unknown.
+registers no `php_value` or `php_admin_value` directive, reducing its Apache
+configuration surface. This is not a unique protection for `disable_functions`:
+PHP requires that setting in `php.ini`, and mod_php tenants cannot override it
+through `.htaccess` either. `disable_functions` is not a tenant sandbox.
 
 `APEX_MAX_CONNECTIONS_PER_CHILD` controls Apache child recycling and defaults
 to `0`, which keeps the single baseline child persistent. It counts TCP
