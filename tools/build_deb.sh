@@ -107,7 +107,7 @@ rm -rf "$PKG_DIR"
 
 if [[ ! -f "$REPO_ROOT/.libs/mod_apex.so" ]]; then
     echo "mod_apex artifact not found, building first..."
-    (cd "$REPO_ROOT" && ./build-install.sh)
+    (cd "$REPO_ROOT" && INSTALL_MODE=never ./build-install.sh)
 fi
 
 if [[ ! -f "$REPO_ROOT/.libs/mod_apex.so" ]]; then
