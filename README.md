@@ -551,7 +551,7 @@ docker run -d \
 Use `APEX_OPCACHE_VALIDATE=0` for baked-in or read-only code and `1` for
 writable PHP code. The container rejects any other value during startup.
 
-## Docker security controls
+## Apache and Docker security controls
 
 The Docker image generates these safer PHP defaults at startup:
 
@@ -570,13 +570,15 @@ Referrer-Policy: strict-origin-when-cross-origin
 ```
 
 Apache removes `X-Powered-By` as a defense in depth measure in addition to
-PHP's `expose_php=Off`. The example [httpd.conf](httpd.conf) contains the same
-defaults. CSP, HSTS, `X-Frame-Options`, Permissions Policy, and CORS examples
-remain commented out in [docker/security-hardening.conf](docker/security-hardening.conf)
-and `httpd.conf`: those policies depend on the application's resource origins,
-embedding requirements, browser features, TLS termination, and allowed cross-
-origin callers. Review them for the deployed site before enabling them; never
-enable HSTS on an HTTP-only endpoint.
+PHP's `expose_php=Off`. The Debian, Fedora, and Arch packages install the same
+policy as `php-apex-security.conf`, and the example [httpd.conf](httpd.conf)
+contains the same defaults. CSP, HSTS, `X-Frame-Options`, Permissions Policy,
+and CORS examples remain commented out in
+[docker/security-hardening.conf](docker/security-hardening.conf) and
+`httpd.conf`: those policies depend on the application's resource origins,
+embedding requirements, browser features, TLS termination, and allowed
+cross-origin callers. Review them for the deployed site before enabling them;
+never enable HSTS on an HTTP-only endpoint.
 
 For a multi-tenant platform that accepts customer PHP code, opt into stricter
 process and remote-file access:
