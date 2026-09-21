@@ -116,7 +116,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         zlib1g \
     && rm -rf /var/lib/apt/lists/* \
     && (a2dismod mpm_prefork >/dev/null 2>&1 || true) \
-    && a2enmod mpm_event remoteip rewrite
+    && a2enmod headers mpm_event remoteip rewrite
 
 # PHP ZTS/embed runtime + mod_apex module
 COPY --from=builder /usr/local/php-zts /usr/local/php-zts

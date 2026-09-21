@@ -561,6 +561,23 @@ session.cookie_httponly=1
 session.cookie_samesite=Lax
 ```
 
+It also enables Apache's `mod_headers` and applies these response-header
+defaults to successful and error responses:
+
+```text
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+```
+
+Apache removes `X-Powered-By` as a defense in depth measure in addition to
+PHP's `expose_php=Off`. The example [httpd.conf](httpd.conf) contains the same
+defaults. CSP, HSTS, `X-Frame-Options`, Permissions Policy, and CORS examples
+remain commented out in [docker/security-hardening.conf](docker/security-hardening.conf)
+and `httpd.conf`: those policies depend on the application's resource origins,
+embedding requirements, browser features, TLS termination, and allowed cross-
+origin callers. Review them for the deployed site before enabling them; never
+enable HSTS on an HTTP-only endpoint.
+
 For a multi-tenant platform that accepts customer PHP code, opt into stricter
 process and remote-file access:
 

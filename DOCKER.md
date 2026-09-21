@@ -166,6 +166,16 @@ session.cookie_samesite=Lax
 Applications can still set their own session cookie parameters when they need
 a different SameSite policy.
 
+Apache's `mod_headers` is enabled and the image sends
+`X-Content-Type-Options: nosniff` and
+`Referrer-Policy: strict-origin-when-cross-origin` on successful and error
+responses. It also removes `X-Powered-By` at the Apache layer. Stricter policies
+such as CSP, HSTS, framing restrictions, Permissions Policy, and CORS are
+provided as disabled examples in
+[`docker/security-hardening.conf`](docker/security-hardening.conf), because
+their correct values depend on the application, HTTPS termination, and trusted
+origins.
+
 For a multi-tenant service that runs customer-supplied PHP, you can disable
 operating-system command functions:
 
