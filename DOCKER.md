@@ -260,11 +260,13 @@ docker run -d --name my-php-app \
   practicalwebuser/mod_apex-apache:php8.4
 ```
 
-The default virtual host disables unrestricted `.htaccess` settings. It
-allows only `RewriteEngine`, `RewriteBase`, `RewriteCond`, and `RewriteRule`,
-which preserves standard WordPress permalink rules without allowing tenants
-to change arbitrary Apache settings. `mod_apex` does not register
-`php_value` or `php_admin_value`; use a mounted INI file for PHP settings.
+The default virtual host uses `AllowOverride All` so the standard `.htaccess`
+files shipped by WordPress, Drupal, and Symfony work without image-specific
+rewrites. For a controlled production deployment, moving the application's
+rules into the virtual-host configuration and changing this to
+`AllowOverride None` provides tighter control and avoids per-request
+`.htaccess` discovery. `mod_apex` does not register `php_value` or
+`php_admin_value`; use a mounted INI file for PHP settings.
 
 Use your framework's normal configuration for database connections and
 sessions. PHP Apex intentionally passes incoming HTTP headers through like

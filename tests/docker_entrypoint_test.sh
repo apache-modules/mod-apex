@@ -176,10 +176,8 @@ if grep -Eq '^[[:space:]]*KeepAlive[[:space:]]' "$keepalive_conf"; then
 fi
 
 vhost_conf="$repo_root/docker/000-mod-apex.conf"
-grep -Fx '        AllowOverride None' "$vhost_conf"
-grep -Fx '        AllowOverrideList RewriteEngine RewriteBase RewriteCond RewriteRule' \
-    "$vhost_conf"
-if grep -Fq 'AllowOverride All' "$vhost_conf"; then
-    echo 'container vhost must not allow unrestricted .htaccess directives' >&2
+grep -Fx '        AllowOverride All' "$vhost_conf"
+if grep -Eq '^[[:space:]]*AllowOverrideList[[:space:]]' "$vhost_conf"; then
+    echo 'container vhost must not restrict framework .htaccess directives' >&2
     exit 1
 fi

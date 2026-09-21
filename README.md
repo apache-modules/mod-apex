@@ -619,12 +619,13 @@ Multiple addresses or CIDRs may be space-separated. Trust only networks that
 cannot be reached directly by untrusted clients. For proxy chains, every hop
 must validate and sanitize the forwarded header or be explicitly trusted.
 
-The container disables unrestricted `.htaccess` overrides while retaining the
-four rewrite directives used by standard WordPress permalinks. `mod_apex`
-registers no `php_value` or `php_admin_value` directive, reducing its Apache
-configuration surface. This is not a unique protection for `disable_functions`:
-PHP requires that setting in `php.ini`, and mod_php tenants cannot override it
-through `.htaccess` either. `disable_functions` is not a tenant sandbox.
+The container uses `AllowOverride All` so the standard `.htaccess` files from
+WordPress, Drupal, and Symfony work without image-specific rewrites. For a
+controlled production deployment, move the application's rules into the
+virtual-host configuration and set `AllowOverride None` for tighter control
+and to avoid per-request `.htaccess` discovery. `mod_apex` registers no
+`php_value` or `php_admin_value` directive; use `php.ini` or a mounted INI file
+for PHP settings. `disable_functions` is not a tenant sandbox.
 
 `APEX_MAX_CONNECTIONS_PER_CHILD` controls Apache child recycling and defaults
 to `0`, which keeps the single baseline child persistent. It counts TCP
