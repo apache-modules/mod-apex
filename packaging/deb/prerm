@@ -2,6 +2,10 @@
 set -euo pipefail
 
 if [[ "${1:-}" == "remove" || "${1:-}" == "upgrade" ]]; then
+    if command -v a2disconf >/dev/null 2>&1; then
+        a2disconf php-apex-security >/dev/null || true
+    fi
+
     if command -v a2dismod >/dev/null 2>&1; then
         a2dismod apex >/dev/null || true
     fi

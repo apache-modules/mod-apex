@@ -8,7 +8,10 @@ if [[ "$1" == "configure" ]]; then
     fi
 
     if command -v a2enmod >/dev/null 2>&1; then
-        a2enmod apex >/dev/null || true
+        a2enmod headers apex >/dev/null || true
+    fi
+    if command -v a2enconf >/dev/null 2>&1; then
+        a2enconf php-apex-security >/dev/null || true
     fi
     if [[ -x /usr/local/sbin/php-apex-mode ]] \
         && apachectl -M 2>/dev/null | grep -q 'mpm_event_module'; then

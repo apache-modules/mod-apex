@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PKG_ROOT="$REPO_ROOT/packaging/deb"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/dist}"
-VERSION="${VERSION:-0.1.7}"
+VERSION="${VERSION:-0.1.8}"
 ARCH="${ARCH:-$(dpkg --print-architecture)}"
 PKG_NAME="mod-apex"
 PKG_DIR="$OUT_DIR/${PKG_NAME}_${VERSION}_${ARCH}"
@@ -136,6 +136,8 @@ install -m 0644 "$REPO_ROOT/docker/apex.conf" \
     "$PKG_DIR/etc/apache2/mods-available/apex.conf"
 install -m 0644 "$REPO_ROOT/packaging/apache-wordpress.conf" \
     "$PKG_DIR/etc/apache2/conf-available/php-apex-performance.conf"
+install -m 0644 "$REPO_ROOT/docker/security-hardening.conf" \
+    "$PKG_DIR/etc/apache2/conf-available/php-apex-security.conf"
 
 # Docs
 install -m 0644 "$REPO_ROOT/README.md" "$PKG_DIR/usr/share/doc/$PKG_NAME/README.md"

@@ -16,7 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PHP_VERSION="${PHP_VERSION:-8.4.25}"
-MOD_APEX_VERSION="${MOD_APEX_VERSION:-0.1.7}"
+MOD_APEX_VERSION="${MOD_APEX_VERSION:-0.1.8}"
 TOPDIR="${TOPDIR:-$REPO_ROOT/dist/rpmbuild}"
 TARGETS="${1:-all}"
 
@@ -61,7 +61,8 @@ build_mod_apex() {
     cp "$REPO_ROOT/packaging/rpm/apex.load" "$stage/$name/packaging/rpm/"
     cp "$REPO_ROOT/packaging/apache-wordpress.conf" "$stage/$name/packaging/"
     cp "$REPO_ROOT/packaging/apex-sizing.sh" "$stage/$name/packaging/"
-    cp "$REPO_ROOT/docker/apex.conf" "$stage/$name/docker/"
+    cp "$REPO_ROOT/docker/apex.conf" "$REPO_ROOT/docker/security-hardening.conf" \
+        "$stage/$name/docker/"
     cp "$REPO_ROOT/tools/apache_mode.sh" "$stage/$name/tools/"
     tar -C "$stage" -czf "$TOPDIR/SOURCES/${name}.tar.gz" "$name"
     rm -rf "$stage"

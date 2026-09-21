@@ -46,6 +46,8 @@ install -D -m 0644 packaging/apex-sizing.sh \
     %{buildroot}/usr/local/lib/php-apex/apex-sizing.sh
 install -D -m 0644 packaging/apache-wordpress.conf \
     %{buildroot}/etc/httpd/conf.d/php-apex-performance.conf
+install -D -m 0644 docker/security-hardening.conf \
+    %{buildroot}/etc/httpd/conf.d/php-apex-security.conf
 
 %files
 %license LICENSE
@@ -54,6 +56,7 @@ install -D -m 0644 packaging/apache-wordpress.conf \
 %config(noreplace) /etc/httpd/conf.modules.d/10-mod_apex.conf
 %config(noreplace) /etc/httpd/conf.d/mod_apex.conf
 %config(noreplace) /etc/httpd/conf.d/php-apex-performance.conf
+%config(noreplace) /etc/httpd/conf.d/php-apex-security.conf
 /usr/local/sbin/php-apex-mode
 /usr/local/lib/php-apex/apex-sizing.sh
 
@@ -67,5 +70,8 @@ else
 fi
 
 %changelog
+* Mon Sep 21 2026 mod_apex maintainers <maintainers@example.com> - %{mod_apex_version}-1
+- Ship Apache security-header defaults in native packages
+
 * Sat Aug 01 2026 mod_apex maintainers <maintainers@example.com> - %{mod_apex_version}-1
 - Initial mod_apex RPM package

@@ -6,7 +6,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 php_version="${PHP_VERSION:-8.4.25}"
-mod_apex_version="${MOD_APEX_VERSION:-0.1.7}"
+mod_apex_version="${MOD_APEX_VERSION:-0.1.8}"
 out_dir="${OUT_DIR:-$repo_root/dist/arch}"
 
 require_command() {
@@ -66,7 +66,8 @@ build_module_package() {
         --transform "s,^,${name}/," \
         LICENSE NOTICE mod_apex.c build-install.sh packaging/apache-wordpress.conf \
         packaging/apex-sizing.sh packaging/arch/mod-apex.install \
-        packaging/arch/10-mod_apex.conf packaging/arch/mod_apex.conf tools/apache_mode.sh
+        packaging/arch/10-mod_apex.conf packaging/arch/mod_apex.conf \
+        docker/security-hardening.conf tools/apache_mode.sh
     cp "$repo_root/packaging/arch/mod-apex.install" "$work_dir/mod-apex.install"
     cp "$php_package" "$work_dir/php-zts-full.pkg.tar.zst"
     sed "s/^pkgver=.*/pkgver=${mod_apex_version}/" \

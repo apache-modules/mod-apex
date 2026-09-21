@@ -1,6 +1,6 @@
 # Official Arch package recipe for PHP Apex.
 pkgname=mod-apex
-pkgver=0.1.7
+pkgver=0.1.8
 pkgrel=1
 pkgdesc='Apache module that embeds a persistent PHP ZTS runtime in event-MPM workers'
 arch=('x86_64')
@@ -44,6 +44,8 @@ package() {
         "${pkgdir}/etc/httpd/conf/conf.d/mod_apex.conf"
     install -D -m 0644 packaging/apache-wordpress.conf \
         "${pkgdir}/etc/httpd/conf/conf.d/php-apex-performance.conf"
+    install -D -m 0644 docker/security-hardening.conf \
+        "${pkgdir}/etc/httpd/conf/conf.d/php-apex-security.conf"
     install -D -m 0755 tools/apache_mode.sh \
         "${pkgdir}/usr/local/sbin/php-apex-mode"
     install -D -m 0644 packaging/apex-sizing.sh \
