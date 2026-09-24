@@ -4,20 +4,20 @@
 # + mod_apex, all built from source in a single Dockerfile.
 #
 # Works identically with Docker and Podman:
-#   docker build -t mod-apex .   /   podman build -t mod-apex .
-#   docker run  --rm -p 8080:80 mod-apex   /   podman run --rm -p 8080:80 mod-apex
+#   docker build -t practicalwebuser/mod_apex-apache:php8.4 .
+#   docker run --rm -p 8080:80 practicalwebuser/mod_apex-apache:php8.4
 # No rootless-specific changes are required for Podman; the image itself
 # still runs Apache as root (dropping privileges internally to www-data for
 # worker processes), which podman run maps the same way docker does.
 #
 # Mount your application into /var/www/html, e.g.:
-#   docker run --rm -p 8080:80 -v "$PWD/app:/var/www/html:ro" mod-apex
+#   docker run --rm -p 8080:80 -v "$PWD/app:/var/www/html:ro" practicalwebuser/mod_apex-apache:php8.4
 
 ARG PHP_VERSION=8.4.25
 ARG APCU_VERSION=5.1.28
 ARG REDIS_VERSION=6.3.0
 ARG IMAGICK_VERSION=3.8.1
-ARG DEBIAN_IMAGE=debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
+ARG DEBIAN_IMAGE=debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 
 ########################################################################
 # Stage 1: build PHP (ZTS + embed SAPI) and mod_apex from source
@@ -98,21 +98,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         apache2 \
         ca-certificates \
         curl \
-        libcurl4 \
+        libcurl4t64 \
         libfreetype6 \
         libgmp10 \
-        libicu72 \
+        libicu76 \
         libjpeg62-turbo \
-        libmagickwand-6.q16-6 \
+        libmagickwand-7.q16-10 \
         libonig5 \
         libpng16-16 \
         libsodium23 \
         libsqlite3-0 \
-        libssl3 \
+        libssl3t64 \
         libwebp7 \
         libxml2 \
         libxslt1.1 \
-        libzip4 \
+        libzip5 \
         zlib1g \
     && rm -rf /var/lib/apt/lists/* \
     && (a2dismod mpm_prefork >/dev/null 2>&1 || true) \

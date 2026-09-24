@@ -20,11 +20,25 @@ most WordPress, Drupal, Symfony, and custom PHP applications commonly need.
 - **Image handling:** GD with JPEG, PNG, WebP, and FreeType, plus Imagick.
 - **Container setup:** balanced Apache sizing, hardened Apache defaults,
   a static `/healthz` check, and logs sent to the container output.
-- **Base system:** a small Debian Bookworm Slim runtime containing only the
+- **Base system:** a small Debian 13 (Trixie) Slim runtime containing only the
   libraries required by Apache, PHP, and the bundled extensions.
 
 The build tools and compiler stay outside the runtime image. Apache starts as
 root so it can bind port 80, then its request workers run as `www-data`.
+
+## Build a Debian 13 image locally
+
+The repository's Dockerfile builds on Debian 13 (Trixie) Slim. From the
+repository root, run:
+
+```bash
+docker build -t practicalwebuser/mod_apex-apache:php8.4 .
+docker run --rm -p 8080:80 -e APEX_ENABLE_TEST_PAGE=1 practicalwebuser/mod_apex-apache:php8.4
+```
+
+Open `http://localhost:8080/test.php` to check PHP and mod_apex. The test
+page is enabled only by `APEX_ENABLE_TEST_PAGE=1`; omit that variable when
+running an application.
 
 ## Start an application
 

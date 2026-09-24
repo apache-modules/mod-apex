@@ -33,7 +33,7 @@ extensions already together:
 - resource-aware Apache worker sizing with keep-alive disabled
 - hardened Apache defaults, container-friendly logs, and `/healthz`
 
-The runtime uses Debian Bookworm Slim. Compilers and build tools are not kept
+The runtime uses Debian 13 (Trixie) Slim. Compilers and build tools are not kept
 in the published runtime image.
 
 ## Start your PHP app
@@ -173,8 +173,10 @@ must also receive the current Cloudflare proxy ranges. Do not use
 `0.0.0.0/0`. Confirm `$_SERVER['REMOTE_ADDR']` before using it for security
 decisions.
 
-The default `.htaccess` policy permits only WordPress rewrite directives. It
-does not allow arbitrary Apache overrides, `php_value`, or `php_admin_value`.
+The default virtual host uses `AllowOverride All`, so applications can use
+standard Apache `.htaccess` directives, including rewrites. `mod_apex` does
+not register `php_value` or `php_admin_value`; use a mounted PHP INI file for
+PHP settings.
 
 Check availability without invoking PHP:
 
