@@ -664,6 +664,12 @@ static int apex_handler(request_rec *r)
     apr_time_t execute_end = 0;
     apr_time_t shutdown_end = 0;
 
+    /* mod_rewrite temporarily uses redirect-handler while completing a
+     * per-directory rewrite to a PHP file. Let Apache finish the redirect
+     * before checking the final PHP handler mapping. */
+    if (r && r->handler && !strcmp(r->handler, "redirect-handler"))
+        return DECLINED;
+
     /* Fail fast on .php files with incorrect handler mapping. */
     if (r && apex_is_php_filename(r->filename) && !apex_is_supported_handler(r)) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
@@ -676,7 +682,10 @@ static int apex_handler(request_rec *r)
     if (!apex_is_supported_handler(r))
         return DECLINED;
 
-    if (!r->filename || !ap_is_initial_req(r))
+    /* Per-directory rewrites reach PHP through an internal redirect (r->prev).
+     * Skip only subrequests; rejecting internal redirects makes ordinary
+     * front-controller rewrites fail with HTTP 500. */
+    if (!r->filename || r->main)
         return DECLINED;
 
     /* Only execute regular files. Apache normally resolves PATH_INFO to the
