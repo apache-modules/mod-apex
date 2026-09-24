@@ -70,6 +70,9 @@ else
 fi
 
 %changelog
+* Thu Sep 24 2026 mod_apex maintainers <maintainers@example.com> - %{mod_apex_version}-1
+- Handle per-directory PHP rewrites through Apache internal redirects
+
 * Mon Sep 21 2026 mod_apex maintainers <maintainers@example.com> - %{mod_apex_version}-1
 - Ship Apache security-header defaults in native packages
 

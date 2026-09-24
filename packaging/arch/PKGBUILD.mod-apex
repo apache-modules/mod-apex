@@ -1,6 +1,6 @@
 # Official Arch package recipe for PHP Apex.
 pkgname=mod-apex
-pkgver=0.1.8
+pkgver=0.1.9
 pkgrel=1
 pkgdesc='Apache module that embeds a persistent PHP ZTS runtime in event-MPM workers'
 arch=('x86_64')
