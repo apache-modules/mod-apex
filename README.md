@@ -103,10 +103,12 @@ between applications or untrusted tenants.
 
 ## Measured production baseline
 
-The current production gate runs an uncached WordPress workload in a container
-limited to exactly 2 CPUs and 2 GiB of memory. PHP Apex automatic tuning selected
-4 workers, disabled keep-alive, and left worker recycling unlimited. The test
-used Apache `event` MPM, PHP 8.4.25 ZTS, OPcache, and tracing JIT.
+This earlier production benchmark ran an uncached WordPress workload in a
+container limited to exactly 2 CPUs and 2 GiB of memory. PHP Apex automatic
+tuning selected 4 workers, disabled keep-alive, and left worker recycling
+unlimited. It used Apache `event` MPM, PHP 8.4.25 ZTS, OPcache, and tracing JIT.
+The published Docker image now uses PHP 8.4.27; these results have not been
+remeasured on it.
 
 | Measurement | 60-second baseline | 30-minute soak |
 | --- | ---: | ---: |
