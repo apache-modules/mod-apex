@@ -13,7 +13,7 @@
 # Mount your application into /var/www/html, e.g.:
 #   docker run --rm -p 8080:80 -v "$PWD/app:/var/www/html:ro" practicalwebuser/mod_apex-apache:php8.4
 
-ARG PHP_VERSION=8.4.25
+ARG PHP_VERSION=8.4.27
 ARG APCU_VERSION=5.1.28
 ARG REDIS_VERSION=6.3.0
 ARG IMAGICK_VERSION=3.8.1

@@ -26,7 +26,7 @@ Environment:
   PACKAGE_BUILD_ROOT
                   Temporary physical install root for unprivileged package
                   builds. PHP still keeps PREFIX as its final runtime path.
-  PHP_VERSION     PHP release to build (default: 8.4.25)
+  PHP_VERSION     PHP release to build (default: 8.4.27)
   APCU_VERSION    APCu PECL release (default: 5.1.28)
   REDIS_VERSION   phpredis PECL release (default: 6.3.0)
   IMAGICK_VERSION imagick PECL release (default: 3.8.1)
@@ -52,7 +52,7 @@ fi
 PREFIX="${PREFIX:-/usr/local/php-zts}"
 DESTDIR="${DESTDIR:-}"
 PACKAGE_BUILD_ROOT="${PACKAGE_BUILD_ROOT:-}"
-PHP_VERSION="${PHP_VERSION:-8.4.25}"
+PHP_VERSION="${PHP_VERSION:-8.4.27}"
 APCU_VERSION="${APCU_VERSION:-5.1.28}"
 REDIS_VERSION="${REDIS_VERSION:-6.3.0}"
 IMAGICK_VERSION="${IMAGICK_VERSION:-3.8.1}"

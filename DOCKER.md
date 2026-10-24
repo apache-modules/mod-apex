@@ -10,7 +10,7 @@ most WordPress, Drupal, Symfony, and custom PHP applications commonly need.
 ## What's in the image
 
 - **Apache 2.4 with event MPM** for modern threaded request handling.
-- **PHP 8.4.25 ZTS** with the embed SAPI used by PHP Apex.
+- **PHP 8.4.27 ZTS** with the embed SAPI used by PHP Apex.
 - **PHP Apex (`mod_apex`)** already loaded and mapped to `.php` files.
 - **Performance tools:** OPcache with JIT support and APCu object caching.
 - **Cache and session support:** the native Redis PHP extension.

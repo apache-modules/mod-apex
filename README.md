@@ -219,6 +219,10 @@ straight from the latest GitHub release. Run these commands as a user with
 `sudo` access. If Apache already sends `.php` files to mod_php or PHP-FPM,
 disable that PHP handler before enabling PHP Apex.
 
+As of October 24, 2026, the published packages below still contain PHP
+8.4.25. PHP 8.4.27 packages have not been published yet; use a source build
+if you need 8.4.27 now.
+
 Create a clean download directory first:
 
 ```bash
