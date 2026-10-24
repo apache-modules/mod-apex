@@ -1,4 +1,8 @@
-# PHP Apex for Apache
+# PHP 8.4 ZTS Apache Docker image with event MPM | PHP Apex
+
+[Docker Hub repository](https://hub.docker.com/r/practicalwebuser/mod_apex-apache)
+
+PHP 8.4 ZTS (thread-safe) Apache Docker image with event MPM, mod_apex and OPcache; no PHP-FPM.
 
 **One container. One request path. PHP ready inside Apache.**
 

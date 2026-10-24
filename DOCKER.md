@@ -1,8 +1,10 @@
-# PHP Apex Docker image
+# PHP 8.4 ZTS Apache Docker image | PHP Apex
 
 `practicalwebuser/mod_apex-apache:php8.4` puts Apache, PHP 8.4.27 ZTS, and
 PHP Apex (`mod_apex`) in one container. You run one web container; there is
 no PHP-FPM container to configure or keep in sync.
+
+[View the PHP 8.4 ZTS Apache image on Docker Hub](https://hub.docker.com/r/practicalwebuser/mod_apex-apache).
 
 It serves PHP directly through Apache's event MPM and includes the extensions
 most WordPress, Drupal, Symfony, and custom PHP applications commonly need.

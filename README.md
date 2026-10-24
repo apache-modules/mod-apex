@@ -10,6 +10,10 @@ traditional mod_php.
 Choose the ready-to-run Docker image or install matching packages on Debian,
 Ubuntu, Fedora, or Arch Linux.
 
+The [PHP 8.4 ZTS Apache Docker image with event MPM](https://hub.docker.com/r/practicalwebuser/mod_apex-apache)
+is published on Docker Hub. See the [Docker image guide](DOCKER.md) for setup,
+volumes, and configuration.
+
 ```bash
 docker pull practicalwebuser/mod_apex-apache:php8.4
 ```

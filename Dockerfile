@@ -156,8 +156,10 @@ RUN printf 'ok\n' > /var/www/html/healthz \
 COPY --chmod=0644 packaging/apex-sizing.sh /usr/local/lib/php-apex/apex-sizing.sh
 COPY --chmod=0755 docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint
 
-LABEL org.opencontainers.image.title="PHP Apex" \
-      org.opencontainers.image.description="Apache, PHP 8.4 ZTS, and mod_apex in one container" \
+LABEL org.opencontainers.image.title="PHP 8.4 ZTS Apache Docker image with event MPM | PHP Apex" \
+      org.opencontainers.image.description="PHP 8.4 ZTS (thread-safe) Apache Docker image with event MPM, mod_apex and OPcache; no PHP-FPM" \
+      org.opencontainers.image.url="https://hub.docker.com/r/practicalwebuser/mod_apex-apache" \
+      org.opencontainers.image.source="https://github.com/apache-modules/mod-apex" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 EXPOSE 80
