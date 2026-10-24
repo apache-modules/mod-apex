@@ -2,7 +2,7 @@
 
 **One container. One request path. PHP ready inside Apache.**
 
-`practicalwebuser/mod_apex-apache:php8.4` puts Apache, PHP 8.4 ZTS, and PHP
+`practicalwebuser/mod_apex-apache:php8.4` puts Apache, PHP 8.4.27 ZTS, and PHP
 Apex in one ready-to-run image. PHP executes directly in Apache's worker
 threads, so you avoid a separate PHP-FPM container, FastCGI socket, and second
 request queue.
@@ -200,8 +200,10 @@ traffic at your reverse proxy or load balancer.
 
 | Tag | Use |
 | --- | --- |
-| `php8.4` | PHP 8.4, Apache, and PHP Apex |
+| `php8.4` | Current PHP 8.4.27 ZTS, Apache, and PHP Apex v0.1.10 |
 
+The tag is updated in place. Its current digest is
+`sha256:e9ef0395e468139755143f0a0a1052b915b05e33aea3164520e5697423aeed69`.
 For repeatable production deployments, pull and test the tag, then pin its
 digest in your deployment configuration.
 

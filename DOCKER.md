@@ -1,6 +1,6 @@
 # PHP Apex Docker image
 
-`practicalwebuser/mod_apex-apache:php8.4` puts Apache, PHP 8.4 ZTS, and
+`practicalwebuser/mod_apex-apache:php8.4` puts Apache, PHP 8.4.27 ZTS, and
 PHP Apex (`mod_apex`) in one container. You run one web container; there is
 no PHP-FPM container to configure or keep in sync.
 
@@ -289,8 +289,10 @@ changes `REMOTE_ADDR`.
 
 ## Updating safely
 
-The `php8.4` tag moves as fixes are published. For repeatable deployments,
-pin the image digest after testing a release:
+The existing `php8.4` tag now points to the PHP 8.4.27 / PHP Apex v0.1.10
+image (`sha256:e9ef0395e468139755143f0a0a1052b915b05e33aea3164520e5697423aeed69`).
+This tag moves as fixes are published. For repeatable deployments, pin the
+image digest after testing a release:
 
 ```bash
 docker pull practicalwebuser/mod_apex-apache:php8.4

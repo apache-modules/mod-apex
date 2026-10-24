@@ -14,6 +14,9 @@ Ubuntu, Fedora, or Arch Linux.
 docker pull practicalwebuser/mod_apex-apache:php8.4
 ```
 
+The published `php8.4` image currently contains PHP 8.4.27 ZTS and PHP Apex
+v0.1.10. The tag is updated in place; pin its digest for repeatable deployments.
+
 ## Stop running two systems to serve one PHP request
 
 A typical Apache and PHP-FPM stack asks you to operate two services. Apache
@@ -161,7 +164,7 @@ CPU limits, and memory limits all affect real-world results.
 
 ## Recommended: launch the all-in-one image
 
-Get Apache, PHP 8.4 ZTS, PHP Apex, OPcache, health checks, the conservative
+Get Apache, PHP 8.4.27 ZTS, PHP Apex, OPcache, health checks, the conservative
 worker profile, and the full extension set in one image. Bring your application
 and set the container limits; the request stack is already assembled.
 
