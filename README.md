@@ -79,7 +79,10 @@ mod_php deployment may lack. The module returns a generic fatal-error page
 unless `ApexVerboseErrors` is explicitly enabled. It refuses to execute a PHP
 path with the wrong handler mapping or a target that is not a regular file, and
 it catches PHP startup failures so they return an error instead of taking down
-the Apache child. Its build script requests stack protection, fortified libc
+the Apache child. If a bailout escapes PHP request shutdown before cleanup
+finishes, Apex terminates that child so its PHP state cannot be reused; Apache
+starts a replacement child. Requests in the terminated child may be interrupted.
+Its build script requests stack protection, fortified libc
 calls, format-string checks, and linker hardening.
 
 The supplied Docker image suppresses PHP and Apache version strings in response

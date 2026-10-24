@@ -778,6 +778,12 @@ static int apex_handler(request_rec *r)
         zend_try {
             apex_clear_php_request_info();
             APEX_REQUEST_SHUTDOWN();
+        } zend_catch {
+            /* PHP cleanup did not finish. Never reuse this child with
+             * potentially live request state on its worker thread. */
+            ap_log_rerror(APLOG_MARK, APLOG_CRIT, 0, r,
+                          "mod_apex: PHP shutdown bailed after startup failure; terminating child");
+            _exit(1);
         } zend_end_try();
         SG(server_context) = NULL;
         apex_send_fatal_error_page(r, "PHP request startup failed");
@@ -789,14 +795,19 @@ static int apex_handler(request_rec *r)
         ap_set_content_type(r, "text/html; charset=UTF-8");
     }
 
-    /* ===== 4. Reset per-request Zend state for the next request. Guarded
-     * because user shutdown functions and object destructors run here and can
-     * bail. Note: process-global state reachable from PHP (putenv/setlocale/
+    /* ===== 4. Reset per-request Zend state for the next request. A bailout
+     * that escapes PHP's own shutdown guards leaves cleanup incomplete, so
+     * terminate this child instead of reusing its worker thread. Note:
+     * process-global state reachable from PHP (putenv/setlocale/
      * umask and non-thread-safe extension globals) is NOT and cannot be reset
      * per thread -- see README compatibility notes. ===== */
     zend_try {
         apex_clear_php_request_info();
         APEX_REQUEST_SHUTDOWN();
+    } zend_catch {
+        ap_log_rerror(APLOG_MARK, APLOG_CRIT, 0, r,
+                      "mod_apex: PHP request shutdown bailed; terminating child");
+        _exit(1);
     } zend_end_try();
     if (ctx.metrics_enabled) {
         shutdown_end = apr_time_now();
